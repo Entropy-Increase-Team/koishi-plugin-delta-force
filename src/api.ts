@@ -85,9 +85,15 @@ export class ApiService {
   async getPersonalInfo(frameworkToken: string): Promise<ApiResponse<{
     userData: unknown
     careerData: CareerData
+  }> & {
     roleInfo: UserInfo
-  }>> {
-    return this.request('GET', '/df/person/info', { frameworkToken })
+  }> {
+    return this.request('GET', '/df/person/personalInfo', { frameworkToken }) as Promise<ApiResponse<{
+      userData: unknown
+      careerData: CareerData
+    }> & {
+      roleInfo: UserInfo
+    }>
   }
 
   // 获取日报数据
