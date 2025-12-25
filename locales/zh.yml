@@ -1,0 +1,17 @@
+commands:
+  df:
+    description: 三角洲行动
+  df.help:
+    description: 查看帮助信息
+  df.login:
+    description: 登录账号
+    options:
+      platform: 登录平台（qq/wechat）
+  df.info:
+    description: 查看个人信息
+  df.daily:
+    description: 查看日报数据
+  df.weekly:
+    description: 查看周报数据
+  df.password:
+    description: 查看每日密码

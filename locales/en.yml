@@ -1,0 +1,17 @@
+commands:
+  df:
+    description: Delta Force
+  df.help:
+    description: Show help information
+  df.login:
+    description: Login account
+    options:
+      platform: Login platform (qq/wechat)
+  df.info:
+    description: View personal information
+  df.daily:
+    description: View daily report
+  df.weekly:
+    description: View weekly report
+  df.password:
+    description: View daily password
