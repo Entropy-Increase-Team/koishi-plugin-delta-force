@@ -12,11 +12,19 @@ export function registerLoginCommands(
   const logger = ctx.logger('delta-force')
 
   ctx.command('df.login [平台:string]', '登录账号')
-    .option('platform', '-p <platform:string> 登录平台（qq/wechat）', { fallback: 'qq' })
+    .option('platform', '-p <platform:string> 登录平台（qq/wechat/wegame/qqsafe）', { fallback: 'qq' })
     .action(async ({ session, options }) => {
-      const platform = options.platform || 'qq'
+      let platform = options.platform || 'qq'
       const userId = session.userId
       const userPlatform = session.platform
+      
+      // 统一转为小写处理
+      platform = platform.toLowerCase()
+      
+      // 处理各种登录平台的别名
+      if (['wx', '微信'].includes(platform)) platform = 'wechat'
+      if (['安全中心', 'qq安全中心'].includes(platform)) platform = 'qqsafe'
+      if (['wegame微信', '微信wegame'].includes(platform)) platform = 'wegame/wechat'
       
       // 记录原始平台类型，用于后续判断是否进行角色绑定
       const originalPlatform = platform
@@ -38,12 +46,35 @@ export function registerLoginCommands(
 
         let qrImage = qrRes.qr_image
 
+        // 微信平台的二维码不需要处理，其他平台需要去掉 base64 前缀
         if (platform !== 'wechat' && qrImage.startsWith('data:image/png;base64,')) {
           qrImage = qrImage.replace(/^data:image\/png;base64,/, '')
         }
 
+        // 根据不同平台生成专属的登录提示
+        let platformName: string
+        switch (platform) {
+          case 'qq':
+            platformName = 'QQ'
+            break
+          case 'wechat':
+            platformName = '微信'
+            break
+          case 'wegame':
+            platformName = 'WeGame（使用QQ扫描）'
+            break
+          case 'wegame/wechat':
+            platformName = 'WeGame（使用微信扫描）'
+            break
+          case 'qqsafe':
+            platformName = 'QQ安全中心'
+            break
+          default:
+            platformName = platform.toUpperCase()
+        }
+
         await session.send(h('message', [
-          h('text', `请使用${platform === 'qq' ? 'QQ' : '微信'}扫描二维码登录\n有效期约2分钟\n`),
+          h('text', `请使用【${platformName}】扫描二维码登录\n有效期约2分钟\n`),
           h('image', { url: `data:image/png;base64,${qrImage}` }),
         ]))
 

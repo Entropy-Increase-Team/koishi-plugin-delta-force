@@ -63,7 +63,7 @@ export function apply(ctx: Context, config: Config) {
 
   // 注册各功能模块
   registerLoginCommands(ctx, config, api)
-  registerInfoCommands(ctx, api)
+  registerInfoCommands(ctx, api, dataManager)
   registerDailyCommands(ctx, api, dataManager)
   registerWeeklyCommands(ctx, api, dataManager)
   registerRecordCommands(ctx, api, dataManager)
