@@ -1,0 +1,227 @@
+import { Context, h } from 'koishi'
+import { Config } from '../config'
+import { ApiService } from '../api'
+import { getGroupActiveToken, setGroupActiveToken, getTokenGroup } from '../database'
+import { sleep } from '../utils'
+
+export function registerLoginCommands(
+  ctx: Context,
+  config: Config,
+  api: ApiService
+) {
+  const logger = ctx.logger('delta-force')
+
+  ctx.command('df.login [平台:string]', '登录账号')
+    .option('platform', '-p <platform:string> 登录平台（qq/wechat）', { fallback: 'qq' })
+    .action(async ({ session, options }) => {
+      const platform = options.platform || 'qq'
+      const userId = session.userId
+      const userPlatform = session.platform
+      
+      // 记录原始平台类型，用于后续判断是否进行角色绑定
+      const originalPlatform = platform
+
+      await session.send('正在获取登录二维码，请稍候...')
+
+      try {
+        // 1. 获取二维码
+        const qrRes = await api.getLoginQr(platform)
+        
+        if (qrRes.code !== 0 || !qrRes.qr_image) {
+          return '获取二维码失败，请稍后重试'
+        }
+
+        const frameworkToken = qrRes.token || qrRes.frameworkToken
+        if (!frameworkToken) {
+          return '获取登录凭证失败，请稍后重试'
+        }
+
+        let qrImage = qrRes.qr_image
+
+        if (platform !== 'wechat' && qrImage.startsWith('data:image/png;base64,')) {
+          qrImage = qrImage.replace(/^data:image\/png;base64,/, '')
+        }
+
+        await session.send(h('message', [
+          h('text', `请使用${platform === 'qq' ? 'QQ' : '微信'}扫描二维码登录\n有效期约2分钟\n`),
+          h('image', { url: `data:image/png;base64,${qrImage}` }),
+        ]))
+
+        // 2. 轮询登录状态
+        const startTime = Date.now()
+        const timeout = 180000
+        let notifiedScanned = false
+
+        while (Date.now() - startTime < timeout) {
+          await sleep(2000)
+
+          const statusRes = await api.getLoginStatus(platform, frameworkToken)
+
+          if (statusRes.code === 0) {
+            // 登录成功
+            const finalToken = (statusRes as { token?: string; frameworkToken?: string }).token || 
+                             (statusRes as { token?: string; frameworkToken?: string }).frameworkToken || 
+                             frameworkToken
+
+            logger.info(`[delta-force] ${platform}登录成功，获取到token: ${finalToken.substring(0, 4)}****`)
+
+            // 3. 绑定用户到后端
+            const bindRes = await api.bindUser({
+              platformID: userId,
+              frameworkToken: finalToken,
+              clientID: config.clientID,
+              clientType: 'koishi',
+            })
+
+            if (!bindRes || (bindRes.code !== 0 && !bindRes.success)) {
+              return `登录失败: ${bindRes?.msg || bindRes?.message || '未知错误'}`
+            }
+
+            logger.info(`[delta-force] 用户绑定成功`)
+
+            // 4. 获取用户账号列表（从 API）
+            const listRes = await api.getUserList(userId, config.clientID)
+
+            if (!listRes || listRes.code !== 0 || !listRes.data) {
+              await session.send('获取账号列表失败，无法为您自动激活。请手动切换。')
+              return
+            }
+
+            const newAccounts = listRes.data
+            const newlyBoundAccount = newAccounts.find(a => a.frameworkToken === finalToken)
+
+            if (!newlyBoundAccount) {
+              await session.send('绑定成功，但未能从账号列表中确认，请手动切换。')
+              return
+            }
+
+            logger.info(`[delta-force] 找到新绑定账号，类型: ${newlyBoundAccount.tokenType}`)
+
+            // 5. 确定新账号所属分组
+            const newAccountType = newlyBoundAccount.tokenType.toLowerCase()
+            const newAccountGroupKey = getTokenGroup(newAccountType)
+            
+            // 6. 判断是否应该激活新账号
+            let shouldActivateNewToken = false
+            
+            // 获取该分组当前的激活 token
+            const oldActiveToken = await getGroupActiveToken(ctx, userId, userPlatform, newAccountGroupKey)
+            
+            if (!oldActiveToken) {
+              // Case 1: 该分组没有激活账号，直接激活新账号
+              shouldActivateNewToken = true
+              logger.info(`[delta-force] 分组 ${newAccountGroupKey} 无激活账号，激活新账号`)
+            } else {
+              // Case 2: 该分组已有激活账号，查找该账号信息
+              const oldActiveAccount = newAccounts.find(acc => acc.frameworkToken === oldActiveToken)
+              
+              if (!oldActiveAccount) {
+                // 原激活账号已失效或已被删除，激活新账号
+                shouldActivateNewToken = true
+                logger.info(`[delta-force] 分组 ${newAccountGroupKey} 原激活账号已失效，激活新账号`)
+              } else {
+                // 获取原账号的类型分组
+                const oldAccountType = oldActiveAccount.tokenType.toLowerCase()
+                const oldAccountGroupKey = getTokenGroup(oldAccountType)
+                
+                // 只有在同一分组内才更新激活账号
+                if (oldAccountGroupKey === newAccountGroupKey) {
+                  shouldActivateNewToken = true
+                  logger.info(`[delta-force] 在同一分组(${newAccountGroupKey})内更新激活账号`)
+                } else {
+                  logger.info(`[delta-force] 不同分组账号(${oldAccountGroupKey}->${newAccountGroupKey})，保持原激活账号不变`)
+                }
+              }
+            }
+
+            // 7. 激活新账号
+            if (shouldActivateNewToken) {
+              await setGroupActiveToken(ctx, userId, userPlatform, newAccountGroupKey, finalToken)
+              logger.info(`[delta-force] 已激活${newAccountGroupKey}分组新账号: ${finalToken.substring(0, 4)}****${finalToken.slice(-4)}`)
+            } else {
+              logger.info(`[delta-force] 保持原激活账号不变: ${oldActiveToken.substring(0, 4)}****${oldActiveToken.slice(-4)}`)
+            }
+
+            // 8. 自动绑定角色（仅 QQ 和微信）
+            if (['qq', 'wechat'].includes(originalPlatform)) {
+              const characterBindRes = await api.bindCharacter(finalToken)
+              
+              if (characterBindRes && characterBindRes.success && characterBindRes.roleInfo) {
+                const { charac_name, level, tdmlevel, adultstatus } = characterBindRes.roleInfo
+                const isAdult = adultstatus === '0' ? '否' : '是'
+                
+                let charMsg = '登录绑定成功并角色信息已获取！\n'
+                charMsg += '--- 角色信息 ---\n'
+                charMsg += `昵称: ${charac_name}\n`
+                charMsg += `烽火地带等级: ${level}\n`
+                charMsg += `全面战场等级: ${tdmlevel}\n`
+                charMsg += `防沉迷: ${isAdult}`
+                
+                return charMsg
+              } else {
+                const apiMsg = characterBindRes?.msg || characterBindRes?.message || '未知错误'
+                return `登录成功！\n自动绑定角色失败: ${apiMsg}。\n您可以稍后使用 df.bind 手动绑定。`
+              }
+            } else {
+              return '登录成功！'
+            }
+          } else if (statusRes.code === 2) {
+            if (!notifiedScanned) {
+              notifiedScanned = true
+              await session.send('二维码已扫描，请在手机上确认登录')
+            }
+          } else if (statusRes.code === -2) {
+            return '二维码已过期，请重新登录'
+          }
+        }
+
+        return '登录超时，请重新尝试'
+      } catch (error) {
+        logger.error('登录失败:', error)
+        return `登录失败: ${(error as Error).message}`
+      }
+    })
+  
+  // 角色绑定指令
+  ctx.command('df.bind [token:string]', '绑定游戏角色')
+    .action(async ({ session }, token) => {
+      const userId = session.userId
+      const userPlatform = session.platform
+
+      // 如果没有提供 token，使用当前激活的 token
+      if (!token) {
+        const { getActiveToken } = await import('../database')
+        token = await getActiveToken(ctx, userId, userPlatform)
+      }
+
+      if (!token) {
+        return '您尚未登录或激活任何账号，请先使用 df.login 登录，或提供一个有效的Token。'
+      }
+
+      await session.send('正在为您绑定游戏内角色，请稍候...')
+
+      try {
+        const res = await api.bindCharacter(token)
+        
+        if (res && res.success && res.roleInfo) {
+          const { charac_name, level, tdmlevel, adultstatus } = res.roleInfo
+          const isAdult = adultstatus === '0' ? '否' : '是'
+
+          let msg = '角色绑定成功！\n'
+          msg += '--- 角色信息 ---\n'
+          msg += `昵称: ${charac_name}\n`
+          msg += `烽火地带等级: ${level}\n`
+          msg += `全面战场等级: ${tdmlevel}\n`
+          msg += `防沉迷: ${isAdult}`
+          
+          return msg
+        } else {
+          const apiMsg = res?.msg || res?.message || '未知错误'
+          return `角色绑定失败: ${apiMsg}`
+        }
+      } catch (error) {
+        logger.error('角色绑定失败:', error)
+        return `角色绑定失败: ${(error as Error).message}`
+      }
+    })
+}

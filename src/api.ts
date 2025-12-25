@@ -1,6 +1,6 @@
 import { Context } from 'koishi'
 import { Config } from './config'
-import { ApiResponse, LoginResponse, BindCharacterResponse, UserInfo, CareerData } from './types'
+import { ApiResponse, LoginResponse, BindCharacterResponse, UserInfo, CareerData, UserListItem } from './types'
 
 export class ApiService {
   constructor(
@@ -8,10 +8,10 @@ export class ApiService {
     private config: Config
   ) {}
 
-  private async request<T = any>(
+  private async request<T = unknown>(
     method: 'GET' | 'POST',
     endpoint: string,
-    data?: any
+    data?: Record<string, unknown>
   ): Promise<ApiResponse<T>> {
     try {
       const url = `${this.config.apiBaseUrl}${endpoint}`
@@ -21,7 +21,7 @@ export class ApiService {
         'Authorization': `Bearer ${this.config.apiKey}`,
       }
       
-      let response: any
+      let response: unknown
       if (method === 'GET') {
         response = await this.ctx.http.get(url, { 
           params: data,
@@ -33,13 +33,13 @@ export class ApiService {
         })
       }
       
-      return response
+      return response as ApiResponse<T>
     } catch (error) {
       this.ctx.logger('delta-force').error('API请求失败:', error)
       return {
         success: false,
         code: -1,
-        message: error.message || '请求失败',
+        message: (error as Error).message || '请求失败',
       }
     }
   }
@@ -65,12 +65,12 @@ export class ApiService {
   }
 
   // 获取用户列表
-  async getUserList(data: {
-    platformID: string
-    clientID: string
-    clientType: string
-  }): Promise<ApiResponse> {
-    return this.request('GET', '/user/list', data)
+  async getUserList(platformID: string, clientID: string): Promise<ApiResponse<UserListItem[]>> {
+    return this.request('GET', '/user/list', {
+      platformID,
+      clientID,
+      clientType: 'koishi',
+    })
   }
 
   // 绑定角色
@@ -83,7 +83,7 @@ export class ApiService {
 
   // 获取个人信息
   async getPersonalInfo(frameworkToken: string): Promise<ApiResponse<{
-    userData: any
+    userData: unknown
     careerData: CareerData
     roleInfo: UserInfo
   }>> {
@@ -91,13 +91,32 @@ export class ApiService {
   }
 
   // 获取日报数据
-  async getDailyReport(frameworkToken: string, type: string = 'sol'): Promise<ApiResponse> {
-    return this.request('GET', '/df/person/daily', { frameworkToken, type })
+  async getDailyReport(frameworkToken: string, type?: string): Promise<ApiResponse> {
+    const params: Record<string, string> = { frameworkToken }
+    if (type) {
+      params.type = type
+    }
+    return this.request('GET', '/df/person/daily', params)
   }
 
   // 获取周报数据
-  async getWeeklyReport(frameworkToken: string, type: string = 'sol'): Promise<ApiResponse> {
-    return this.request('GET', '/df/person/weekly', { frameworkToken, type })
+  async getWeeklyReport(
+    frameworkToken: string,
+    type?: string,
+    isShowNullFriend?: boolean,
+    date?: string
+  ): Promise<ApiResponse> {
+    const params: Record<string, string | boolean> = { frameworkToken }
+    if (type) {
+      params.type = type
+    }
+    if (typeof isShowNullFriend !== 'undefined') {
+      params.isShowNullFriend = isShowNullFriend
+    }
+    if (date) {
+      params.date = date
+    }
+    return this.request('GET', '/df/person/weekly', params)
   }
 
   // 获取战绩列表

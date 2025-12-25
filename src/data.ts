@@ -1,6 +1,16 @@
 import { Context } from 'koishi'
 import { ApiService } from './api'
 
+interface MapItem {
+  id: string | number
+  name: string
+}
+
+interface OperatorItem {
+  id: string | number
+  name: string
+}
+
 // 地图和干员数据缓存
 let mapData: Map<string, string> | null = null
 let operatorData: Map<string, string> | null = null
@@ -18,14 +28,14 @@ export class DataManager {
       // 获取地图数据
       const mapsRes = await this.api.getMaps()
       if (mapsRes.code === 0 && mapsRes.data) {
-        mapData = new Map(mapsRes.data.map((item: any) => [String(item.id), item.name]))
+        mapData = new Map((mapsRes.data as MapItem[]).map(item => [String(item.id), item.name]))
         this.ctx.logger('delta-force').info(`地图数据加载成功 (${mapData.size}条记录)`)
       }
 
       // 获取干员数据
       const operatorsRes = await this.api.getOperators()
       if (operatorsRes.code === 0 && operatorsRes.data) {
-        operatorData = new Map(operatorsRes.data.map((item: any) => [String(item.id), item.name]))
+        operatorData = new Map((operatorsRes.data as OperatorItem[]).map(item => [String(item.id), item.name]))
         this.ctx.logger('delta-force').info(`干员数据加载成功 (${operatorData.size}条记录)`)
       }
     } catch (error) {
