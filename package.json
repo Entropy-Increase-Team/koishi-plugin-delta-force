@@ -1,37 +1,59 @@
 {
   "name": "koishi-plugin-delta-force",
   "description": "三角洲行动游戏数据查询插件",
-  "version": "0.1.0",
+  "version": "1.0.0-alpha.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
-    "resources"
+    "locales",
+    "README.md",
+    "LICENSE"
   ],
   "license": "AGPL-3.0",
-  "author": "Dnyo666",
+  "author": "Dnyo666 <dnyo666@foxmail.com>",
+  "contributors": [
+    "Dnyo666 <dnyo666@foxmail.com>"
+  ],
+  "homepage": "https://github.com/Dnyo666/koishi-plugin-delta-force#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dnyo666/koishi-plugin-delta-force.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dnyo666/koishi-plugin-delta-force/issues"
+  },
   "keywords": [
     "chatbot",
     "koishi",
     "plugin",
     "delta-force",
-    "三角洲行动"
+    "三角洲行动",
+    "game",
+    "data",
+    "query"
   ],
   "peerDependencies": {
     "koishi": "^4.17.0"
   },
-  "dependencies": {
-    "sharp": "^0.34.2"
-  },
   "koishi": {
     "description": {
-      "zh": "三角洲行动游戏数据查询插件",
-      "en": "Delta Force game data query plugin"
+      "zh": "三角洲行动游戏数据查询插件，支持多平台登录、个人信息查询、日报周报、战绩查询等功能",
+      "en": "Delta Force game data query plugin with multi-platform login, personal info, daily/weekly reports, and match records"
     },
     "service": {
-      "required": ["http", "database"],
-      "optional": ["puppeteer", "cron"]
+      "required": [
+        "http",
+        "database"
+      ],
+      "optional": [
+        "assets"
+      ]
     },
-    "locales": ["zh", "en"]
+    "locales": [
+      "zh",
+      "en"
+    ],
+    "preview": true
   }
 }

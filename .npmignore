@@ -1,0 +1,17 @@
+# Source files
+src/
+tsconfig.json
+tsconfig.tsbuildinfo
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in package)
+Delta-Force-API-DOCS.md
+MIGRATION_PLAN.md
+
+# Development files
+*.log
+*.tsbuildinfo
+.DS_Store
