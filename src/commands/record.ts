@@ -11,22 +11,40 @@ export function registerRecordCommands(
 ) {
   const logger = ctx.logger('delta-force')
 
-  ctx.command('df.record [类型:string] [页码:number]', '查看战绩')
-    .action(async ({ session }, type = 'sol', page = 1) => {
+  // 主战绩命令 - 支持多种别名
+  ctx.command('df.record [...args:string]', '查看战绩')
+    .alias('战绩')
+    .action(async ({ session }, ...args) => {
       const userId = session.userId
       const platform = session.platform
+
+      // 解析参数
+      let mode = 'sol' // 默认模式为烽火地带
+      let page = 1      // 默认页数为1
+      let modeName = '烽火地带'
+
+      for (const arg of args) {
+        if (['全面', '全面战场', '战场', 'mp'].includes(arg)) {
+          mode = 'mp'
+          modeName = '全面战场'
+        } else if (['烽火', '烽火地带', 'sol', '摸金'].includes(arg)) {
+          mode = 'sol'
+          modeName = '烽火地带'
+        } else if (!isNaN(parseInt(arg))) {
+          page = parseInt(arg) > 0 ? parseInt(arg) : 1
+        }
+      }
 
       const token = await getActiveToken(ctx, userId, platform)
       if (!token) {
         return '您尚未登录，请先使用 df.login 登录'
       }
 
-      const modeName = type === 'sol' ? '烽火地带' : '全面战场'
       await session.send(`正在查询 ${modeName} 的战绩 (第${page}页)，请稍候...`)
 
       try {
-        const res = await api.getRecordList(token, type, page)
-        
+        const res = await api.getRecordList(token, mode, page)
+
         if (await handleApiError(res, session)) return
 
         if (!res.data || !Array.isArray(res.data) || res.data.length === 0) {
@@ -36,7 +54,7 @@ export function registerRecordCommands(
         const records = res.data
         let message = `【${modeName}战绩 - 第${page}页】\n\n`
 
-        if (type === 'sol') {
+        if (mode === 'sol') {
           message += formatSolRecords(records, page, dataManager)
         } else {
           message += formatMpRecords(records, page, dataManager)
@@ -45,7 +63,7 @@ export function registerRecordCommands(
         return message.trim()
       } catch (error) {
         logger.error('查询战绩失败:', error)
-        return `查询失败: ${error.message}`
+        return `查询失败: ${(error as Error).message}`
       }
     })
 }

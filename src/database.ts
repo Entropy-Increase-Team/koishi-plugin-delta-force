@@ -1,6 +1,20 @@
 import { Context } from 'koishi'
 import { DeltaForceToken } from './types'
 
+// 定义静态缓存表接口
+interface StaticCache {
+  id: number
+  key: string
+  value: Record<string, unknown>
+  updated_at: Date
+}
+
+declare module 'koishi' {
+  interface Tables {
+    delta_force_static_cache: StaticCache
+  }
+}
+
 export function extendDatabase(ctx: Context) {
   // 扩展用户表 - 存储各分组的激活 token
   ctx.model.extend('delta_force_user', {
@@ -32,6 +46,69 @@ export function extendDatabase(ctx: Context) {
     primary: 'id',
     autoInc: true,
   })
+
+  // 扩展静态缓存表 - 存储游戏静态数据（武器、护甲等）
+  ctx.model.extend('delta_force_static_cache', {
+    id: 'unsigned',
+    key: { type: 'string', length: 255, initial: '' },
+    value: 'json',
+    updated_at: 'timestamp',
+  }, {
+    unique: ['key'],
+  })
+}
+
+// 静态缓存管理器
+export class StaticCacheManager {
+  constructor(private ctx: Context) {}
+
+  /**
+   * 设置缓存
+   * @param key 缓存键
+   * @param value 缓存值
+   */
+  async set(key: string, value: Record<string, unknown>): Promise<void> {
+    await this.ctx.database.upsert('delta_force_static_cache', [{
+      key,
+      value,
+      updated_at: new Date(),
+    }], ['key'])
+  }
+
+  /**
+   * 获取缓存
+   * @param key 缓存键
+   * @returns 缓存值或null
+   */
+  async get(key: string): Promise<Record<string, unknown> | null> {
+    const [cache] = await this.ctx.database.get('delta_force_static_cache', { key })
+    return cache?.value || null
+  }
+
+  /**
+   * 检查缓存是否存在
+   * @param key 缓存键
+   * @returns 是否存在
+   */
+  async has(key: string): Promise<boolean> {
+    const caches = await this.ctx.database.get('delta_force_static_cache', { key })
+    return caches && caches.length > 0
+  }
+
+  /**
+   * 删除缓存
+   * @param key 缓存键
+   */
+  async delete(key: string): Promise<void> {
+    await this.ctx.database.remove('delta_force_static_cache', { key })
+  }
+
+  /**
+   * 清空所有缓存
+   */
+  async clear(): Promise<void> {
+    await this.ctx.database.remove('delta_force_static_cache', {})
+  }
 }
 
 // 确定账号所属分组

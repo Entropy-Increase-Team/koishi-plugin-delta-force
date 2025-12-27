@@ -1,4 +1,4 @@
-import { Context } from 'koishi'
+import { Context, Session } from 'koishi'
 import { Config } from '../config'
 import { ApiService } from '../api'
 import { getGroupActiveToken, setGroupActiveToken, getTokenGroup } from '../database'
@@ -10,11 +10,64 @@ export function registerAccountCommands(
 ) {
   const logger = ctx.logger('delta-force')
 
+  /**
+   * 判断是否为私聊
+   */
+  const isPrivateSession = (session: Session): boolean => {
+    return !!(session as any).isDirect || (session as any).channel?.id === 'private'
+  }
+
+  /**
+   * 格式化 token 显示（私聊完整，群聊脱敏）
+   */
+  const formatToken = (token: string, isPrivate: boolean): string => {
+    if (isPrivate) {
+      return token
+    }
+    return `${token.substring(0, 4)}****${token.slice(-4)}`
+  }
+
+  /**
+   * 按分组整理账号
+   */
+  const groupAccounts = (accounts: any[]) => {
+    const grouped: Record<string, typeof accounts> = {
+      qq_wechat: [],
+      wegame: [],
+      qqsafe: [],
+    }
+
+    accounts.forEach(acc => {
+      const type = acc.tokenType?.toLowerCase()
+      if (type === 'qq' || type === 'wechat') {
+        grouped.qq_wechat.push(acc)
+      } else if (type === 'wegame' || type === 'wegame/wechat') {
+        grouped.wegame.push(acc)
+      } else if (type === 'qqsafe') {
+        grouped.qqsafe.push(acc)
+      }
+    })
+
+    return grouped
+  }
+
+  /**
+   * 构建有序的账号列表
+   */
+  const buildOrderedAccountList = (grouped: Record<string, any[]>) => {
+    return [
+      ...grouped.qq_wechat,
+      ...grouped.wegame,
+      ...grouped.qqsafe,
+    ]
+  }
+
   // 账号列表
   ctx.command('df.account', '账号管理')
     .action(async ({ session }) => {
       const userId = session.userId
       const platform = session.platform
+      const isPrivate = isPrivateSession(session)
 
       try {
         // 从云端 API 获取账号列表
@@ -38,29 +91,7 @@ export function registerAccountCommands(
         }
 
         // 按分组整理账号
-        const grouped: Record<string, typeof accounts> = {
-          qq_wechat: [],
-          wegame: [],
-          qqsafe: [],
-        }
-
-        accounts.forEach(acc => {
-          const type = acc.tokenType?.toLowerCase()
-          if (type === 'qq' || type === 'wechat') {
-            grouped.qq_wechat.push(acc)
-          } else if (type === 'wegame' || type === 'wegame/wechat') {
-            grouped.wegame.push(acc)
-          } else if (type === 'qqsafe') {
-            grouped.qqsafe.push(acc)
-          }
-        })
-
-        // 按照分组顺序构建完整列表（用于序号）
-        const allInOrder = [
-          ...grouped.qq_wechat,
-          ...grouped.wegame,
-          ...grouped.qqsafe,
-        ]
+        const grouped = groupAccounts(accounts)
 
         // 构建显示消息
         let message = '【账号列表】\n\n'
@@ -80,11 +111,11 @@ export function registerAccountCommands(
 
             groupTokens.forEach(token => {
               const isActive = token.frameworkToken === groupActiveToken ? '✅ ' : ''
-              const maskedToken = `${token.frameworkToken.substring(0, 4)}****${token.frameworkToken.slice(-4)}`
+              const tokenDisplay = formatToken(token.frameworkToken, isPrivate)
               const status = token.isValid ? '有效' : '失效'
               const qqDisplay = token.qqNumber ? ` (${token.qqNumber.slice(0, 4)}****)` : ''
-              
-              message += `${overallIndex++}. ${isActive}[${token.tokenType.toUpperCase()}]${qqDisplay} ${maskedToken} (${status})\n`
+
+              message += `${overallIndex++}. ${isActive}[${token.tokenType.toUpperCase()}]${qqDisplay} ${tokenDisplay} (${status})\n`
             })
             message += '\n'
           }
@@ -105,6 +136,7 @@ export function registerAccountCommands(
     .action(async ({ session }, index) => {
       const userId = session.userId
       const platform = session.platform
+      const isPrivate = isPrivateSession(session)
 
       try {
         // 从云端获取账号列表
@@ -117,42 +149,22 @@ export function registerAccountCommands(
         const accounts = listRes.data
 
         // 按分组整理并构建序号列表
-        const grouped: Record<string, typeof accounts> = {
-          qq_wechat: [],
-          wegame: [],
-          qqsafe: [],
-        }
-
-        accounts.forEach(acc => {
-          const type = acc.tokenType?.toLowerCase()
-          if (type === 'qq' || type === 'wechat') {
-            grouped.qq_wechat.push(acc)
-          } else if (type === 'wegame' || type === 'wegame/wechat') {
-            grouped.wegame.push(acc)
-          } else if (type === 'qqsafe') {
-            grouped.qqsafe.push(acc)
-          }
-        })
-
-        const allInOrder = [
-          ...grouped.qq_wechat,
-          ...grouped.wegame,
-          ...grouped.qqsafe,
-        ]
+        const grouped = groupAccounts(accounts)
+        const allInOrder = buildOrderedAccountList(grouped)
 
         if (index < 1 || index > allInOrder.length) {
           return '序号无效，请使用 df.account 查看账号列表'
         }
 
         const targetToken = allInOrder[index - 1]
-        
+
         if (!targetToken.isValid) {
           return '该账号已失效，无法切换'
         }
 
         // 确定目标账号所属分组
         const targetGroup = getTokenGroup(targetToken.tokenType)
-        
+
         // 只更新该分组的激活账号（本地存储）
         await setGroupActiveToken(ctx, userId, platform, targetGroup, targetToken.frameworkToken)
 
@@ -163,9 +175,9 @@ export function registerAccountCommands(
           other: '其他',
         }
 
-        const maskedToken = `${targetToken.frameworkToken.substring(0, 4)}****${targetToken.frameworkToken.slice(-4)}`
+        const tokenDisplay = formatToken(targetToken.frameworkToken, isPrivate)
         const qqDisplay = targetToken.qqNumber ? ` (${targetToken.qqNumber.slice(0, 4)}****)` : ''
-        return `账号切换成功！\n当前${groupNames[targetGroup] || targetGroup}分组使用:${qqDisplay} ${maskedToken}`
+        return `账号切换成功！\n当前${groupNames[targetGroup] || targetGroup}分组使用:${qqDisplay} ${tokenDisplay}`
       } catch (error) {
         logger.error('切换账号失败:', error)
         return `切换失败: ${(error as Error).message}`
@@ -189,35 +201,15 @@ export function registerAccountCommands(
         const accounts = listRes.data
 
         // 按分组整理并构建序号列表
-        const grouped: Record<string, typeof accounts> = {
-          qq_wechat: [],
-          wegame: [],
-          qqsafe: [],
-        }
-
-        accounts.forEach(acc => {
-          const type = acc.tokenType?.toLowerCase()
-          if (type === 'qq' || type === 'wechat') {
-            grouped.qq_wechat.push(acc)
-          } else if (type === 'wegame' || type === 'wegame/wechat') {
-            grouped.wegame.push(acc)
-          } else if (type === 'qqsafe') {
-            grouped.qqsafe.push(acc)
-          }
-        })
-
-        const allInOrder = [
-          ...grouped.qq_wechat,
-          ...grouped.wegame,
-          ...grouped.qqsafe,
-        ]
+        const grouped = groupAccounts(accounts)
+        const allInOrder = buildOrderedAccountList(grouped)
 
         if (index < 1 || index > allInOrder.length) {
           return '序号无效，请使用 df.account 查看账号列表'
         }
 
         const targetToken = allInOrder[index - 1]
-        
+
         // 调用 API 解绑（云端删除）
         await api.bindUser({
           platformID: userId,
@@ -229,7 +221,7 @@ export function registerAccountCommands(
         // 如果解绑的是当前激活账号，清除该分组的激活状态（本地）
         const targetGroup = getTokenGroup(targetToken.tokenType)
         const groupActiveToken = await getGroupActiveToken(ctx, userId, platform, targetGroup)
-        
+
         if (groupActiveToken === targetToken.frameworkToken) {
           await setGroupActiveToken(ctx, userId, platform, targetGroup, null)
         }

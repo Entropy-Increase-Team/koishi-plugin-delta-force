@@ -21,7 +21,7 @@ export const inject = {
 
 export function apply(ctx: Context, config: Config) {
   const logger = ctx.logger('delta-force')
-  
+
   logger.info('三角洲行动插件正在加载...')
 
   // 扩展数据库
@@ -29,12 +29,14 @@ export function apply(ctx: Context, config: Config) {
 
   // 初始化 API 服务
   const api = new ApiService(ctx, config)
-  
+
   // 初始化数据管理器
   const dataManager = new DataManager(ctx, api)
-  
+
   // 异步初始化数据
-  dataManager.init().catch(err => {
+  Promise.all([
+    dataManager.init(),
+  ]).catch(err => {
     logger.warn('数据管理器初始化失败:', err)
   })
 

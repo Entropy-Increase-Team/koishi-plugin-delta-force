@@ -12,20 +12,26 @@ export function registerLoginCommands(
   const logger = ctx.logger('delta-force')
 
   ctx.command('df.login [平台:string]', '登录账号')
-    .option('platform', '-p <platform:string> 登录平台（qq/wechat/wegame/qqsafe）', { fallback: 'qq' })
+    .option('platform', '-p <platform:string> 登录平台（qq/wechat/wegame/qqsafe/wegame/wechat）', { fallback: 'qq' })
     .action(async ({ session, options }) => {
       let platform = options.platform || 'qq'
       const userId = session.userId
       const userPlatform = session.platform
-      
+
       // 统一转为小写处理
       platform = platform.toLowerCase()
-      
+
       // 处理各种登录平台的别名
       if (['wx', '微信'].includes(platform)) platform = 'wechat'
       if (['安全中心', 'qq安全中心'].includes(platform)) platform = 'qqsafe'
       if (['wegame微信', '微信wegame'].includes(platform)) platform = 'wegame/wechat'
-      
+
+      // 验证平台是否有效
+      const validPlatforms = ['qq', 'wechat', 'wegame', 'qqsafe', 'wegame/wechat']
+      if (!validPlatforms.includes(platform)) {
+        return `不支持的平台: ${platform}\n支持的登录平台: qq, wechat, wegame, qqsafe, wegame/wechat`
+      }
+
       // 记录原始平台类型，用于后续判断是否进行角色绑定
       const originalPlatform = platform
 
@@ -34,9 +40,11 @@ export function registerLoginCommands(
       try {
         // 1. 获取二维码
         const qrRes = await api.getLoginQr(platform)
-        
-        if (qrRes.code !== 0 || !qrRes.qr_image) {
-          return '获取二维码失败，请稍后重试'
+
+        if (!qrRes || qrRes.code !== 0 || !qrRes.qr_image) {
+          const errorMsg = qrRes?.msg || qrRes?.message || '获取二维码失败，请稍后重试'
+          logger.error(`获取${platform}登录二维码失败:`, errorMsg)
+          return `获取二维码失败: ${errorMsg}`
         }
 
         const frameworkToken = qrRes.token || qrRes.frameworkToken
@@ -46,9 +54,19 @@ export function registerLoginCommands(
 
         let qrImage = qrRes.qr_image
 
-        // 微信平台的二维码不需要处理，其他平台需要去掉 base64 前缀
-        if (platform !== 'wechat' && qrImage.startsWith('data:image/png;base64,')) {
-          qrImage = qrImage.replace(/^data:image\/png;base64,/, '')
+        if (platform === 'wechat') {
+          // 微信的二维码是 URL，直接使用
+          if (!qrImage.startsWith('http')) {
+            // 如果返回的不是 URL，可能是其他格式，尝试按 base64 处理
+            if (qrImage.startsWith('data:image/png;base64,')) {
+              qrImage = qrImage.replace(/^data:image\/png;base64,/, '')
+            }
+          }
+        } else {
+          // 其他平台去除 base64 前缀
+          if (qrImage.startsWith('data:image/png;base64,')) {
+            qrImage = qrImage.replace(/^data:image\/png;base64,/, '')
+          }
         }
 
         // 根据不同平台生成专属的登录提示
@@ -73,9 +91,19 @@ export function registerLoginCommands(
             platformName = platform.toUpperCase()
         }
 
+        // 构建图片元素（根据 qrImage 类型）
+        let imageElement
+        if (qrImage.startsWith('http')) {
+          // URL 形式（微信）
+          imageElement = h('image', { url: qrImage })
+        } else {
+          // base64 形式（其他平台）
+          imageElement = h('image', { url: `data:image/png;base64,${qrImage}` })
+        }
+
         await session.send(h('message', [
           h('text', `请使用【${platformName}】扫描二维码登录\n有效期约2分钟\n`),
-          h('image', { url: `data:image/png;base64,${qrImage}` }),
+          imageElement,
         ]))
 
         // 2. 轮询登录状态
