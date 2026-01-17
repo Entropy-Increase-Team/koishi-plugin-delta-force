@@ -1,12 +1,13 @@
 {
   "name": "koishi-plugin-delta-force",
   "description": "三角洲行动游戏数据查询插件",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-beta.2",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
     "lib",
     "locales",
+    "resources",
     "README.md",
     "LICENSE"
   ],
@@ -15,13 +16,13 @@
   "contributors": [
     "Dnyo666 <dnyo666@foxmail.com>"
   ],
-  "homepage": "https://github.com/Dnyo666/koishi-plugin-delta-force#readme",
+  "homepage": "https://github.com/Entropy-Increase-Team/koishi-plugin-delta-force",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Dnyo666/koishi-plugin-delta-force.git"
+    "url": "git+https://github.com/Entropy-Increase-Team/koishi-plugin-delta-force.git"
   },
   "bugs": {
-    "url": "https://github.com/Dnyo666/koishi-plugin-delta-force/issues"
+    "url": "https://github.com/Entropy-Increase-Team/koishi-plugin-delta-force/issues"
   },
   "keywords": [
     "chatbot",
@@ -44,16 +45,18 @@
     "service": {
       "required": [
         "http",
-        "database"
+        "database",
+        "puppeteer"
       ],
-      "optional": [
-        "assets"
-      ]
+      "optional": []
     },
     "locales": [
       "zh",
       "en"
     ],
     "preview": true
+  },
+  "dependencies": {
+    "art-template": "^4.13.4"
   }
 }

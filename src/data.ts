@@ -3,7 +3,7 @@ import { ApiService } from './api'
 import { StaticCacheManager } from './database'
 import { readFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import { join } from 'path'
+import { join, resolve } from 'path'
 
 interface MapItem {
   id: string | number
@@ -53,12 +53,15 @@ const CACHE_PREFIX = 'delta_force_'
 
 export class DataManager {
   private cacheManager: StaticCacheManager
+  private resourcesPath: string
 
   constructor(
     private ctx: Context,
     private api: ApiService
   ) {
     this.cacheManager = new StaticCacheManager(ctx)
+    // 资源路径 (相对于插件根目录)
+    this.resourcesPath = resolve(__dirname, '../resources')
   }
 
   async init() {
@@ -416,6 +419,70 @@ export class DataManager {
   }
 
   /**
+   * 根据分数获取对应的段位图片路径
+   * @param score 分数
+   * @param mode 模式 ('sol' 或 'tdm')
+   * @returns 段位图片路径 (相对于 resources 目录)
+   */
+  getRankImage(score: string | number, mode: 'sol' | 'tdm' = 'sol'): string {
+    // 先获取段位名称
+    const rankName = this.getRankByScore(score, mode)
+    if (!rankName || rankName.includes('分数无效') || rankName.includes('未知')) {
+      return ''
+    }
+
+    // 清理段位名称，移除分数和星级信息
+    const cleanRankName = rankName.replace(/\s*\(\d+\)/, '').replace(/\d+星/, '').trim()
+
+    // 段位映射表
+    const rankMappings: Record<string, Record<string, string>> = {
+      sol: {
+        '青铜 V': '1_5', '青铜 IV': '1_4', '青铜 III': '1_3', '青铜 II': '1_2', '青铜 I': '1_1',
+        '白银 V': '2_5', '白银 IV': '2_4', '白银 III': '2_3', '白银 II': '2_2', '白银 I': '2_1',
+        '黄金 V': '3_5', '黄金 IV': '3_4', '黄金 III': '3_3', '黄金 II': '3_2', '黄金 I': '3_1',
+        '铂金 V': '4_5', '铂金 IV': '4_4', '铂金 III': '4_3', '铂金 II': '4_2', '铂金 I': '4_1',
+        '钻石 V': '5_5', '钻石 IV': '5_4', '钻石 III': '5_3', '钻石 II': '5_2', '钻石 I': '5_1',
+        '黑鹰 V': '6_5', '黑鹰 IV': '6_4', '黑鹰 III': '6_3', '黑鹰 II': '6_2', '黑鹰 I': '6_1',
+        '三角洲巅峰': '7',
+      },
+      tdm: {
+        '列兵 V': '1_5', '列兵 IV': '1_4', '列兵 III': '1_3', '列兵 II': '1_2', '列兵 I': '1_1',
+        '上等兵 V': '2_5', '上等兵 IV': '2_4', '上等兵 III': '2_3', '上等兵 II': '2_2', '上等兵 I': '2_1',
+        '军士长 V': '3_5', '军士长 IV': '3_4', '军士长 III': '3_3', '军士长 II': '3_2', '军士长 I': '3_1',
+        '尉官 V': '4_5', '尉官 IV': '4_4', '尉官 III': '4_3', '尉官 II': '4_2', '尉官 I': '4_1',
+        '校官 V': '5_5', '校官 IV': '5_4', '校官 III': '5_3', '校官 II': '5_2', '校官 I': '5_1',
+        '将军 V': '6_5', '将军 IV': '6_4', '将军 III': '6_3', '将军 II': '6_2', '将军 I': '6_1',
+        '统帅': '7',
+      },
+    }
+
+    // 统一模式名称
+    const modeKey = mode === 'tdm' ? 'mp' : mode
+    const mappings = rankMappings[mode] || rankMappings.sol
+
+    const rankCode = mappings[cleanRankName]
+    if (!rankCode) {
+      this.ctx.logger('delta-force').warn(`未找到段位映射: ${cleanRankName} (模式: ${mode})`)
+      return ''
+    }
+
+    return `imgs/rank/${modeKey}/${rankCode}.webp`
+  }
+
+  /**
+   * 随机选择一张背景图片
+   * @returns 背景图片路径 (相对于 resources 目录)
+   */
+  getRandomBackground(): string {
+    const backgrounds = [
+      'bg2-1.webp', 'bg2-2.webp', 'bg2-3.webp', 'bg2-4.webp',
+      'bg2-5.webp', 'bg2-6.webp', 'bg2-7.webp',
+    ]
+    const randomIndex = Math.floor(Math.random() * backgrounds.length)
+    return `imgs/background/${backgrounds[randomIndex]}`
+  }
+
+  /**
    * 根据中文名或tag获取音频标签
    * @param keyword 关键词（中文名或tag）
    * @returns tag值
@@ -514,5 +581,64 @@ export class DataManager {
   findAiPreset(input: string): AiPreset | null {
     if (!aiPresetsData) return null
     return aiPresetsData.find(p => p.code === input || p.name === input) || null
+  }
+
+  /**
+   * 根据干员名称获取干员图片路径
+   * @param operatorName 干员名称
+   * @returns 干员图片完整 file:// 路径
+   */
+  getOperatorImagePath(operatorName: string): string | null {
+    if (!operatorName || operatorName.includes('未知') || operatorName.includes('无')) {
+      return null
+    }
+    // 清理干员名称，移除可能的括号内容
+    const cleanName = operatorName.replace(/\s*\([^)]*\)/, '').trim()
+    if (!cleanName) {
+      return null
+    }
+    
+    // 返回完整的 file:// 路径 (Windows 路径需要特殊处理)
+    const relativePath = `imgs/operator/${cleanName}.png`
+    const fullPath = join(this.resourcesPath, relativePath).replace(/\\/g, '/')
+    return `file:///${fullPath}`
+  }
+
+  /**
+   * 根据地图名称获取地图图片路径
+   * @param mapName 地图名称
+   * @param mode 模式 ('sol' 烽火地带 或 'mp' 全面战场)
+   * @returns 地图图片完整 file:// 路径
+   */
+  getMapImagePath(mapName: string, mode: 'sol' | 'mp' = 'sol'): string | null {
+    if (!mapName || mapName.includes('未知') || mapName.includes('无')) {
+      return null
+    }
+    // 清理地图名称，移除可能的括号内容
+    let cleanName = mapName.trim().replace(/\s*\([^)]*\)/, '')
+    
+    // 根据模式构建路径
+    const prefix = mode === 'sol' ? '烽火-' : '全面-'
+    
+    let relativePath: string
+    
+    // 全面战场模式：从地图名称中提取"-"前面的部分
+    if (mode === 'mp') {
+      if (cleanName.includes('-')) {
+        cleanName = cleanName.split('-')[0].trim()
+      }
+      relativePath = `imgs/map/${prefix}${cleanName}.jpg`
+    } else {
+      // 烽火地带模式：提取基础地图名称
+      let baseName = cleanName
+      if (cleanName.includes('-')) {
+        baseName = cleanName.split('-')[0].trim()
+      }
+      relativePath = `imgs/map/${prefix}${baseName}-常规.png`
+    }
+    
+    // 返回完整的 file:// 路径 (Windows 路径需要特殊处理)
+    const fullPath = join(this.resourcesPath, relativePath).replace(/\\/g, '/')
+    return `file:///${fullPath}`
   }
 }

@@ -4,11 +4,22 @@ import { DataManager } from '../../data'
 import { getActiveToken } from '../../database'
 import { handleApiError } from '../../utils'
 import { DailyReportData } from '../../types'
+import { Renderer } from '../../render'
+
+// URL 解码函数
+function decodeUserInfo(str: string | undefined): string {
+  try {
+    return decodeURIComponent(str || '')
+  } catch {
+    return str || ''
+  }
+}
 
 export function registerDailyCommands(
   ctx: Context,
   api: ApiService,
-  dataManager: DataManager
+  dataManager: DataManager,
+  renderer: Renderer
 ) {
   const logger = ctx.logger('delta-force')
 
@@ -23,15 +34,169 @@ export function registerDailyCommands(
         return '您尚未登录，请先使用 df.login 登录'
       }
 
+      // 解析模式参数
+      let mode = ''
+      if (type) {
+        if (['烽火', '烽火地带', 'sol', '摸金'].includes(type)) {
+          mode = 'sol'
+        } else if (['全面', '全面战场', '战场', 'mp'].includes(type)) {
+          mode = 'mp'
+        }
+      }
+
       await session.send('正在查询日报数据...')
 
+      // 获取当前日期
+      const now = new Date()
+      const year = now.getFullYear()
+      const month = String(now.getMonth() + 1).padStart(2, '0')
+      const day = String(now.getDate()).padStart(2, '0')
+      const currentDateStr = `${year}-${month}-${day}`
+
       try {
-        const res = await api.getDailyReport(token, type)
+        const res = await api.getDailyReport(token, mode)
         
         if (await handleApiError(res, session)) return
 
-        const formatted = formatDailyReport(res.data as DailyReportData, dataManager)
-        return formatted
+        let solDetail: DailySolDetail | undefined
+        let mpDetail: DailyMpDetail | undefined
+
+        if (mode) {
+          const detailData = (res.data as { data?: { data?: { solDetail?: DailySolDetail; mpDetail?: DailyMpDetail } } })?.data?.data
+          if (mode === 'sol') {
+            solDetail = detailData?.solDetail
+          } else if (mode === 'mp') {
+            mpDetail = detailData?.mpDetail
+          }
+        } else {
+          const data = res.data as DailyReportData
+          solDetail = data?.sol?.data?.data?.solDetail
+          mpDetail = data?.mp?.data?.data?.mpDetail
+        }
+
+        // 如果查询全部且两个模式都没有数据，才提示无数据
+        if (!mode && !solDetail && !mpDetail) {
+          return '暂无日报数据，不打两把吗？'
+        }
+
+        // 获取用户信息
+        let userName = session.username || session.userId
+        let userAvatar = ''
+        try {
+          const personalInfoRes = await api.getPersonalInfo(token)
+          if (personalInfoRes?.data && personalInfoRes?.roleInfo) {
+            const { userData } = personalInfoRes.data as { userData?: { charac_name?: string; picurl?: string } }
+            const { roleInfo } = personalInfoRes
+
+            const gameUserName = decodeUserInfo(userData?.charac_name || roleInfo?.charac_name)
+            if (gameUserName) {
+              userName = gameUserName
+            }
+
+            userAvatar = decodeUserInfo(userData?.picurl || roleInfo?.picurl)
+            if (userAvatar && /^[0-9]+$/.test(userAvatar)) {
+              userAvatar = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${userAvatar}.webp`
+            }
+          }
+        } catch {
+          logger.debug('获取用户信息失败，使用默认值')
+        }
+
+        // 构建模板数据
+        const qqAvatarUrl = `http://q.qlogo.cn/headimg_dl?dst_uin=${session.userId}&spec=640&img_type=jpg`
+        const templateData: Record<string, unknown> = {
+          type: 'daily',
+          mode: mode,
+          userName: userName,
+          userAvatar: userAvatar,
+          userId: session.userId,
+          qqAvatarUrl: qqAvatarUrl,
+          currentDate: currentDateStr
+        }
+
+        // 处理全面战场数据
+        if (!mode || mode === 'mp') {
+          const hasValidData = mpDetail && mpDetail.recentDate && mpDetail.recentDate.trim() !== ''
+          
+          if (hasValidData) {
+            const mostUsedOperator = dataManager.getOperatorName(mpDetail.mostUseForceType)
+            const operatorImagePath = mostUsedOperator ? dataManager.getOperatorImagePath(mostUsedOperator) : null
+
+            templateData.mpDetail = {
+              recentDate: mpDetail.recentDate || '-',
+              totalFightNum: mpDetail.totalFightNum || 0,
+              totalWinNum: mpDetail.totalWinNum || 0,
+              totalKillNum: mpDetail.totalKillNum || 0,
+              totalScore: mpDetail.totalScore?.toLocaleString() || '0',
+              mostUsedOperator: mostUsedOperator || '无',
+              operatorImage: operatorImagePath
+            }
+
+            // 处理最佳对局
+            if (mpDetail.bestMatch) {
+              const best = mpDetail.bestMatch
+              const bestMatchMapName = best.mapID ? dataManager.getMapName(best.mapID) : '未知地图'
+              let bestMatchMapImage: string | null = null
+              if (bestMatchMapName && bestMatchMapName !== '未知地图') {
+                bestMatchMapImage = dataManager.getMapImagePath(bestMatchMapName, 'mp')
+              }
+
+              (templateData.mpDetail as Record<string, unknown>).bestMatch = {
+                mapID: best.mapID,
+                mapName: bestMatchMapName,
+                mapImage: bestMatchMapImage,
+                dtEventTime: best.dtEventTime || '-',
+                isWinner: best.isWinner || false,
+                killNum: best.killNum || 0,
+                death: best.death || 0,
+                assist: best.assist || 0,
+                score: best.score?.toLocaleString() || '0'
+              }
+            }
+          } else {
+            templateData.mpDetail = { isEmpty: true }
+          }
+        }
+
+        // 处理烽火地带数据
+        if (!mode || mode === 'sol') {
+          const hasValidData = solDetail && solDetail.recentGainDate && solDetail.recentGainDate.trim() !== ''
+          
+          if (hasValidData) {
+            const topItems = solDetail.userCollectionTop?.list || []
+            
+            // 为物品添加图片URL
+            const itemsWithImages = topItems.map((item: TopItem) => {
+              let imageUrl: string | null = null
+              if (item.pic) {
+                imageUrl = item.pic
+              } else {
+                const objectID = item.objectID || item.itemId || item.objectId
+                if (objectID) {
+                  imageUrl = `https://playerhub.df.qq.com/playerhub/60004/object/${String(objectID)}.png`
+                }
+              }
+              
+              return {
+                objectName: item.objectName || '未知物品',
+                price: parseFloat(String(item.price || 0)).toLocaleString(),
+                count: item.count || 0,
+                imageUrl: imageUrl
+              }
+            })
+
+            templateData.solDetail = {
+              recentGainDate: solDetail.recentGainDate || '-',
+              recentGain: solDetail.recentGain?.toLocaleString() || '0',
+              topItems: itemsWithImages
+            }
+          } else {
+            templateData.solDetail = { isEmpty: true }
+          }
+        }
+
+        // 渲染模板
+        return renderer.renderToMessage('dailyReport', templateData)
       } catch (error) {
         logger.error('查询日报失败:', error)
         return `查询失败: ${(error as Error).message}`
@@ -39,55 +204,40 @@ export function registerDailyCommands(
     })
 }
 
-function formatDailyReport(data: DailyReportData, dataManager: DataManager): string {
-  const solDetail = data.sol?.data?.data?.solDetail
-  const mpDetail = data.mp?.data?.data?.mpDetail
+// 类型定义
+interface TopItem {
+  objectName?: string
+  price?: string | number
+  count?: number
+  pic?: string
+  objectID?: string
+  itemId?: string
+  objectId?: string
+}
 
-  if (!solDetail && !mpDetail) {
-    return '暂无日报数据，不打两把吗？'
+interface DailySolDetail {
+  recentGainDate?: string
+  recentGain?: number
+  userCollectionTop?: {
+    list?: TopItem[]
   }
+}
 
-  let msg = '【三角洲行动日报】\n'
-
-  if (mpDetail) {
-    msg += '--- 全面战场 ---\n'
-    msg += `日期: ${mpDetail.recentDate}\n`
-    msg += `总对局: ${mpDetail.totalFightNum} | 胜利: ${mpDetail.totalWinNum}\n`
-    msg += `总击杀: ${mpDetail.totalKillNum}\n`
-    msg += `总得分: ${mpDetail.totalScore?.toLocaleString()}\n`
-    
-    if (mpDetail.mostUseForceType) {
-      const mostUsedOperator = dataManager.getOperatorName(mpDetail.mostUseForceType)
-      msg += `最常用干员: ${mostUsedOperator}\n`
-    }
-
-    if (mpDetail.bestMatch) {
-      const best = mpDetail.bestMatch
-      const bestMatchMap = dataManager.getMapName(best.mapID)
-      msg += '--- 当日最佳 ---\n'
-      msg += `地图: ${bestMatchMap} | 时间: ${best.dtEventTime}\n`
-      msg += `结果: ${best.isWinner ? '胜利' : '失败'} | KDA: ${best.killNum}/${best.death}/${best.assist}\n`
-      msg += `得分: ${best.score?.toLocaleString()}\n`
-    }
+interface DailyMpDetail {
+  recentDate?: string
+  totalFightNum?: number
+  totalWinNum?: number
+  totalKillNum?: number
+  totalScore?: number
+  mostUseForceType?: string | number
+  bestMatch?: {
+    mapID?: string | number
+    dtEventTime?: string
+    isWinner?: boolean
+    killNum?: number
+    death?: number
+    assist?: number
+    score?: number
+    ArmedForceId?: string | number
   }
-
-  if (solDetail && solDetail.recentGainDate) {
-    if (mpDetail) msg += '\n'
-    msg += '--- 烽火地带 ---\n'
-    msg += `日期: ${solDetail.recentGainDate}\n`
-    msg += `最近带出总价值: ${solDetail.recentGain?.toLocaleString()}\n`
-
-    const topItems = solDetail.userCollectionTop?.list
-    if (topItems && topItems.length > 0) {
-      msg += '--- 近期高价值物资 ---\n'
-      topItems.forEach(item => {
-        const price = parseFloat(item.price).toLocaleString()
-        msg += `${item.objectName}: ${price}\n`
-      })
-    }
-  } else if (!mpDetail) {
-    msg += '--- 烽火地带 ---\n最近没有对局'
-  }
-
-  return msg.trim()
 }

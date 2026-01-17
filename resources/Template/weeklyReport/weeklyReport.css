@@ -1,0 +1,1034 @@
+body {
+    background: #0b0f13;
+    color: #F2F2F2;
+    font-family: 'ProjectD', "Microsoft YaHei", "PingFang SC", sans-serif;
+    margin: 0;
+    padding: 0;
+    width: 680px;
+    height: auto;
+    min-height: 400px;
+    transform: none;
+    transform-origin: unset;
+    overflow: visible;
+}
+
+.container {
+    position: relative;
+    width: 680px;
+    min-height: 400px;
+    margin: 0 auto;
+    background: transparent;
+    overflow: visible;
+}
+
+/* 背景图片 - 确保在最底层，不会覆盖内容 */
+.bg-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.25;
+    z-index: 0;
+    pointer-events: none;
+    border-radius: 0;
+}
+
+.bg-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(11, 15, 19, 0.96) 0%, rgba(13, 18, 23, 0.96) 100%);
+    z-index: 1;
+    pointer-events: none;
+}
+
+.header {
+    position: relative;
+    z-index: 2;
+    margin-bottom: 25px;
+    padding: 20px;
+    border-bottom: 3px solid;
+    border-image: linear-gradient(90deg, transparent, #0FF796, transparent) 1;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    position: relative;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.game-logo {
+    height: 50px;
+    width: auto;
+    opacity: 0.95;
+    filter: drop-shadow(0 0 8px rgba(15, 247, 150, 0.3));
+    flex-shrink: 0;
+}
+
+.title {
+    position: absolute;
+    left: 65%;
+    transform: translateX(-50%);
+    font-size: 32px;
+    font-weight: bold;
+    background: linear-gradient(135deg, #0FF796, #00d4aa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0;
+    letter-spacing: 2px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-shrink: 0;
+}
+
+.user-avatar-wrapper {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid rgba(15, 247, 150, 0.5);
+    box-shadow: 0 0 12px rgba(15, 247, 150, 0.3);
+    background: rgba(0, 0, 0, 0.3);
+    flex-shrink: 0;
+}
+
+.user-avatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.header-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.user-name {
+    color: #FFFFFF;
+    font-weight: 600;
+    font-size: 16px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    letter-spacing: 0.5px;
+}
+
+.report-date {
+    color: rgba(15, 247, 150, 1);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-shadow: 0 0 8px rgba(15, 247, 150, 0.5);
+}
+
+.content {
+    position: relative;
+    z-index: 2;
+    margin-bottom: 15px;
+    padding: 0 30px;
+}
+
+/* 报告网格布局 - 上下排列 */
+.report-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+}
+
+/* 模式卡片 - 完全移除高度限制，允许内容完整显示 */
+.mode-card {
+    background: linear-gradient(135deg, rgba(44, 44, 50, 0.98), rgba(35, 35, 40, 0.98));
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    overflow: visible;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    height: fit-content;
+    min-height: auto;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 12px;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-bottom: 2px solid rgba(15, 247, 150, 0.3);
+    position: relative;
+    overflow: hidden;
+    min-height: 36px;
+    border-radius: 12px 12px 0 0;
+}
+
+.card-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(15, 247, 150, 0.2), rgba(15, 247, 150, 0.05));
+    z-index: 0;
+    border-radius: 12px 12px 0 0;
+}
+
+.card-header > * {
+    position: relative;
+    z-index: 1;
+}
+
+.mode-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #FFFFFF;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    letter-spacing: 1px;
+}
+
+.card-body {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.stats-overview {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+}
+
+.stats-overview.stats-three-col {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    position: relative;
+}
+
+.stat-item.full-width {
+    grid-column: 1 / -1;
+}
+
+.stat-item.highlight-large {
+    background: linear-gradient(90deg, rgba(15, 247, 150, 0.15), rgba(15, 247, 150, 0.05));
+}
+
+/* 资产趋势图表样式 */
+.asset-trend-chart {
+    padding: 12px 16px;
+}
+
+.chart-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    width: 100%;
+}
+
+/* 折线图容器 */
+.line-chart-wrapper {
+    position: relative;
+    width: 100%;
+    height: 180px;
+    margin: 0;
+    overflow: visible;
+    padding: 0;
+}
+
+.line-chart-svg {
+    width: 100%;
+    height: 140px;
+    display: block;
+    overflow: visible;
+}
+
+/* 折线路径 */
+.line-chart-path {
+    stroke: #0FF796;
+    stroke-width: 2.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 2px rgba(15, 247, 150, 0.5));
+}
+
+/* 数据点 */
+.line-chart-point {
+    fill: #0FF796;
+    stroke: #0a0a0a;
+    stroke-width: 1.5;
+}
+
+/* 标签文本 */
+.line-chart-value-text {
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+    dominant-baseline: middle;
+    text-anchor: middle;
+    letter-spacing: 0.3px;
+    filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
+}
+
+/* 日期标签容器 */
+.line-chart-labels {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 30px;
+    display: flex;
+    justify-content: space-between;
+    padding: 0;
+    align-items: center;
+}
+
+.line-chart-label-item {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.line-chart-label {
+    font-size: 10px;
+    color: #999;
+    font-weight: 500;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.chart-bars {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 4px;
+    height: 140px;
+    padding: 0 4px;
+}
+
+.chart-bar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    gap: 4px;
+    min-width: 0;
+}
+
+.chart-bar-wrapper {
+    width: 100%;
+    height: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    position: relative;
+}
+
+.chart-bar {
+    width: 100%;
+    max-width: 40px;
+    background: linear-gradient(180deg, #0FF796 0%, rgba(15, 247, 150, 0.6) 100%);
+    border-radius: 4px 4px 0 0;
+    min-height: 4px;
+    flex-shrink: 0;
+}
+
+.chart-label {
+    font-size: 9px;
+    color: #999;
+    font-weight: 500;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.chart-value {
+    font-size: 9px;
+    color: #0FF796;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: ellipsis;
+    width: 100%;
+    margin-bottom: 4px;
+    position: relative;
+    z-index: 5;
+}
+
+.chart-summary {
+    text-align: center;
+    padding-top: 6px;
+    border-top: 1px solid rgba(15, 247, 150, 0.2);
+}
+
+.chart-summary-text {
+    color: #0FF796;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+
+.stat-value {
+    color: #F2F2F2;
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+.stat-value.highlight {
+    color: #0FF796;
+    font-size: 16px;
+}
+
+.stat-detail {
+    font-size: 10px;
+    color: #aaa;
+    margin-top: 2px;
+    line-height: 1.3;
+}
+
+/* 带图标的统计项 */
+.stat-item-with-icon {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stat-value-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.stat-item-with-image {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    text-align: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+}
+
+/* 带图片的统计项 - 卡片样式，与普通stat-item保持一致 */
+.stat-item-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+}
+
+/* 烽火地带卡片基础样式（保留用于兼容） */
+.sol-card-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    background-color: rgba(0, 0, 0, 0.3);
+    background-position: center;
+    background-repeat: no-repeat;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    width: 100%;
+    flex: 1;
+    min-height: 115px;
+}
+
+/* 烽火地带地图卡片样式 */
+.sol-card-item-map {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    background-color: rgba(0, 0, 0, 0.3);
+    background-size: 120% auto;
+    background-position: center;
+    background-repeat: no-repeat;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    width: 100%;
+    flex: 1;
+    min-height: 106px;
+}
+
+/* 烽火地带干员卡片样式 */
+.sol-card-item-operator {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    background-color: rgba(0, 0, 0, 0.3);
+    background-size: 100% auto;
+    background-position: center;
+    background-repeat: no-repeat;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    width: 100%;
+    flex: 1;
+    min-height: 106px;
+}
+
+/* 全面战场卡片样式 - 统一用于地图和干员 */
+.mp-card-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    background-color: rgba(0, 0, 0, 0.3);
+    background-size: 100% auto;
+    background-position: center;
+    background-repeat: no-repeat;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    width: 100%;
+    flex: 1;
+    min-height: 150px;
+}
+
+.stat-image {
+    width: 100%;
+    object-fit: cover;
+    display: block;
+    border: none;
+    background: none;
+    border-radius: 0;
+}
+
+.operator-stat-image {
+    height: 60px;
+    object-fit: contain;
+    width: auto;
+    border: none;
+    background: none;
+    border-radius: 0;
+}
+
+.map-stat-image {
+    height: 40px;
+    object-fit: cover;
+    border: none;
+    background: none;
+    border-radius: 0;
+}
+
+.rank-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.operator-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    border-radius: 4px;
+    flex-shrink: 0;
+    border: 1px solid rgba(15, 247, 150, 0.3);
+}
+
+.map-thumb {
+    width: 40px;
+    height: 24px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* 物资列表 - 移除高度限制 */
+.items-section {
+    margin-top: 2px;
+}
+
+.items-title {
+    font-size: 12px;
+    color: #FFFFFF;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 6px 12px;
+    border-radius: 4px;
+    display: inline-block;
+    width: auto;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: visible;
+}
+
+.items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
+    overflow: visible;
+}
+
+/* 干员网格布局 */
+.operator-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+/* 地图网格布局 */
+.map-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+}
+
+.item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    font-size: 11px;
+    gap: 10px;
+}
+
+.item-tag {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 4px;
+    text-align: center;
+}
+
+.item-tag-with-image {
+    position: relative;
+    padding-top: 6px;
+}
+
+.item-image {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.item-image.map-image {
+    width: 100%;
+    height: 60px;
+    object-fit: cover;
+    margin-bottom: 6px;
+}
+
+/* 干员项样式 - 两个独立卡片 */
+.operator-item-wrapper {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.operator-image-card {
+    flex-shrink: 0;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    width: auto;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.operator-item-image {
+    width: auto;
+    height: 80px;
+    object-fit: contain;
+    display: block;
+    border-radius: 8px;
+}
+
+.operator-image-placeholder {
+    width: auto;
+    height: 80px;
+    min-width: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 0 12px;
+}
+
+.operator-image-placeholder .placeholder-text {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12px;
+    font-weight: 400;
+    text-align: center;
+}
+
+.sol-card-item-operator .operator-image-placeholder,
+.mp-card-item .operator-image-placeholder {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: auto;
+    height: auto;
+    background: transparent;
+    z-index: 5;
+}
+
+.sol-card-item-operator .operator-image-placeholder .placeholder-text,
+.mp-card-item .operator-image-placeholder .placeholder-text {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.operator-count-card {
+    flex: 0 0 47.5%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 12px;
+    min-height: 80px;
+}
+
+.operator-item-count {
+    color: #0FF796;
+    font-weight: 700;
+    font-size: 18px;
+    white-space: nowrap;
+    text-align: center;
+}
+
+/* 地图项样式 */
+
+/* 用于 img 标签的 map-item（在 item-tag 内） */
+.item-tag.map-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    width: 100%;
+    flex: 1;
+    min-height: 120px;
+}
+
+/* 全面战场地图项样式 - 独立样式避免与烽火地带冲突 */
+.item-tag.map-item-mp {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: hidden;
+    width: 100%;
+    flex: 1;
+    min-height: 100px;
+}
+
+.map-item-image {
+    width: 100%;
+    height: 100%;
+    min-height: 120px;
+    object-fit: cover;
+    display: block;
+}
+
+/* 全面战场地图图片样式 */
+.map-item-mp .map-item-image {
+    min-height: 100px;
+}
+
+/* 统一标题样式 - 用于所有小标题 */
+.stat-label-overlay {
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 6px 12px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    white-space: nowrap;
+    width: fit-content;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* 三列布局中，统一标题位置在顶部 */
+.stats-overview.stats-three-col .stat-item .stat-label-overlay {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    margin-bottom: 0;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* 三列布局中，普通stat-item的内容需要向下偏移，为标题留出空间 */
+.stats-overview.stats-three-col .stat-item:not(.stat-item-card) .stat-value {
+    margin-top: 32px;
+}
+
+/* 当父元素有 position: relative 时，标题显示在左上角（用于图片上的标题） */
+.stat-item-card .stat-label-overlay,
+.sol-card-item .stat-label-overlay,
+.sol-card-item-map .stat-label-overlay,
+.sol-card-item-operator .stat-label-overlay,
+.mp-card-item .stat-label-overlay {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    margin-bottom: 0;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.map-item-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px;
+    width: 100%;
+}
+
+.item-tag .item-name {
+    color: #F2F2F2;
+    font-weight: 500;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+}
+
+.item-tag .item-count {
+    color: #0FF796;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.item-name {
+    color: #F2F2F2;
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.item-price {
+    color: #0FF796;
+    font-weight: 700;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+/* 干员统计网格 */
+.operator-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+}
+
+.operator-stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    text-align: center;
+}
+
+.operator-stat-with-image {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+}
+
+.operator-stat-image {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border-radius: 6px;
+    flex-shrink: 0;
+    border: 1px solid rgba(15, 247, 150, 0.3);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.operator-stat-content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+}
+
+.operator-stat-item .stat-label-overlay {
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+}
+
+.operator-stat-item .stat-value {
+    color: #0FF796;
+    font-weight: 700;
+    font-size: 13px;
+}
+
+/* 队友卡片 - 网格布局 */
+.teammates-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    overflow: visible;
+}
+
+.teammate-card {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    background: linear-gradient(135deg, rgba(44, 44, 50, 0.6), rgba(35, 35, 40, 0.6));
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.teammate-avatar {
+    flex-shrink: 0;
+    width: 50px;
+    height: 50px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid rgba(15, 247, 150, 0.3);
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.teammate-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.teammate-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.teammate-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #0FF796;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.teammate-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.teammate-stat {
+    font-size: 10px;
+    color: #F2F2F2;
+    line-height: 1.4;
+}
+
+/* 无数据提示 */
+.no-data-text {
+    text-align: center;
+    font-size: 15px;
+    color: #888;
+    padding: 40px 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    border: 2px dashed rgba(255, 255, 255, 0.1);
+}
+

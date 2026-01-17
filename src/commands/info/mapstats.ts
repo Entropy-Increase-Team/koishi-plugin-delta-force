@@ -3,6 +3,7 @@ import { ApiService } from '../../api'
 import { DataManager } from '../../data'
 import { getActiveToken } from '../../database'
 import { handleApiError } from '../../utils'
+import { Renderer } from '../../render'
 
 interface MapStatsData {
   mapId: string
@@ -23,10 +24,20 @@ interface MapStatsData {
   }
 }
 
+// URL 解码函数
+function decodeUserInfo(str: string | undefined): string {
+  try {
+    return decodeURIComponent(str || '')
+  } catch {
+    return str || ''
+  }
+}
+
 export function registerMapStatsCommands(
   ctx: Context,
   api: ApiService,
-  dataManager: DataManager
+  dataManager: DataManager,
+  renderer: Renderer
 ) {
   const logger = ctx.logger('delta-force')
 
@@ -114,11 +125,54 @@ export function registerMapStatsCommands(
           return '暂无地图统计数据'
         }
 
-        if (shouldMerge) {
-          return formatMergedMapStats(solData, mpData, dataManager, type)
-        } else {
-          return formatMapStats(solData, mpData, dataManager, type)
+        // 获取用户信息
+        let userName = session.username || session.userId
+        let userAvatar = ''
+        try {
+          const personalInfoRes = await api.getPersonalInfo(token)
+          if (personalInfoRes?.data && personalInfoRes?.roleInfo) {
+            const { userData } = personalInfoRes.data as { userData?: { charac_name?: string; picurl?: string } }
+            const { roleInfo } = personalInfoRes
+
+            const gameUserName = decodeUserInfo(userData?.charac_name || roleInfo?.charac_name)
+            if (gameUserName) {
+              userName = gameUserName
+            }
+
+            userAvatar = decodeUserInfo(userData?.picurl || roleInfo?.picurl)
+            if (userAvatar && /^[0-9]+$/.test(userAvatar)) {
+              userAvatar = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${userAvatar}.webp`
+            }
+          }
+        } catch {
+          logger.debug('获取用户信息失败，使用默认值')
         }
+
+        // 获取当前日期
+        const currentDate = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+        const qqAvatarUrl = `http://q.qlogo.cn/headimg_dl?dst_uin=${session.userId}&spec=640&img_type=jpg`
+
+        // 构建模板数据
+        const mapStatsList = buildMapStatsList(solData, mpData, dataManager, type, shouldMerge)
+
+        if (mapStatsList.length === 0) {
+          return '暂无地图统计数据'
+        }
+
+        const templateData = {
+          userName,
+          userAvatar,
+          qqAvatarUrl,
+          currentDate,
+          backgroundImage: dataManager.getRandomBackground(),
+          type: type || 'all',
+          typeName: type === 'sol' ? '烽火地带' : type === 'mp' ? '全面战场' : '全部模式',
+          seasonid: seasonid === 'all' ? '全部赛季' : `第${seasonid}赛季`,
+          totalMaps: mapStatsList.length,
+          mapStatsList
+        }
+
+        return renderer.renderToMessage('mapStats', templateData)
       } catch (error) {
         logger.error('查询地图统计失败:', error)
         return `查询失败: ${(error as Error).message}`
@@ -168,74 +222,117 @@ function getMapBaseName(mapName: string): string {
   return mapName ? mapName.replace(/[-（(].*$/, '').trim() : ''
 }
 
-function formatMapStats(
+// 模板数据接口
+interface TemplateMapStat {
+  mapName: string
+  mapImage: string | null
+  sol?: {
+    profit: string
+    totalGames: string
+    escaped: string
+    escapeRate: string
+    kill: string
+    failed: string
+  }
+  mp?: {
+    win: string
+    totalGames: string
+    winRate: string
+    score: string
+    gameTime: string
+    kill: string
+    assist: string
+    death: string
+    kda: string
+  }
+}
+
+// 构建模板数据列表
+function buildMapStatsList(
+  solData: MapStatsData[],
+  mpData: MapStatsData[],
+  dataManager: DataManager,
+  type: string,
+  shouldMerge: boolean
+): TemplateMapStat[] {
+  if (shouldMerge) {
+    return buildMergedMapStatsList(solData, mpData, dataManager, type)
+  } else {
+    return buildNormalMapStatsList(solData, mpData, dataManager, type)
+  }
+}
+
+// 构建非合并模式的地图统计列表
+function buildNormalMapStatsList(
   solData: MapStatsData[],
   mpData: MapStatsData[],
   dataManager: DataManager,
   type: string
-): string {
-  let message = '【地图统计数据】\n'
+): TemplateMapStat[] {
+  const result: TemplateMapStat[] = []
 
   if (solData.length > 0 && (!type || type === 'sol')) {
-    message += '\n━━━ 烽火地带 ━━━\n'
     for (const item of solData) {
       const mapName = item.mapName || dataManager.getMapName(item.mapId)
       const d = item.data
       const totalGames = d.zdj || d.cs || 0
-      const escapeRate = calculateRate(d.isescapednum, totalGames)
 
-      message += `\n【${mapName}】\n`
-      message += `净收益: ${formatProfit(d.a1)}\n`
-      message += `总对局: ${formatNumber(totalGames)} | 撤离: ${formatNumber(d.isescapednum)} (${escapeRate})\n`
-      message += `击杀: ${formatNumber(d.killnum)} | 失败: ${formatNumber(d.nums)}\n`
+      result.push({
+        mapName,
+        mapImage: dataManager.getMapImagePath(mapName, 'sol'),
+        sol: {
+          profit: formatProfit(d.a1),
+          totalGames: formatNumber(totalGames),
+          escaped: formatNumber(d.isescapednum),
+          escapeRate: calculateRate(d.isescapednum, totalGames),
+          kill: formatNumber(d.killnum),
+          failed: formatNumber(d.nums)
+        }
+      })
     }
   }
 
   if (mpData.length > 0 && (!type || type === 'mp')) {
-    message += '\n━━━ 全面战场 ━━━\n'
     for (const item of mpData) {
       const mapName = item.mapName || dataManager.getMapName(item.mapId)
       const d = item.data
-      const winRate = calculateRate(d.winnum, d.zdjnum)
-      const kda = calculateKDA(d.killnum, d.assist, d.death)
 
-      message += `\n【${mapName}】\n`
-      message += `胜利: ${formatNumber(d.winnum)}/${formatNumber(d.zdjnum)} (${winRate})\n`
-      message += `得分: ${formatNumber(d.score)} | 时长: ${formatDuration(d.gametime || 0)}\n`
-      message += `K/A/D: ${formatNumber(d.killnum)}/${formatNumber(d.assist)}/${formatNumber(d.death)} (KDA: ${kda})\n`
+      result.push({
+        mapName,
+        mapImage: dataManager.getMapImagePath(mapName, 'mp'),
+        mp: {
+          win: formatNumber(d.winnum),
+          totalGames: formatNumber(d.zdjnum),
+          winRate: calculateRate(d.winnum, d.zdjnum),
+          score: formatNumber(d.score),
+          gameTime: formatDuration(d.gametime || 0),
+          kill: formatNumber(d.killnum),
+          assist: formatNumber(d.assist),
+          death: formatNumber(d.death),
+          kda: calculateKDA(d.killnum, d.assist, d.death)
+        }
+      })
     }
   }
 
-  return message.trim()
+  return result
 }
 
-interface MergedMapData {
-  baseName: string
-  sol?: {
-    profit: number
-    totalGames: number
-    escaped: number
-    kill: number
-    failed: number
-  }
-  mp?: {
-    win: number
-    totalGames: number
-    score: number
-    gameTime: number
-    kill: number
-    assist: number
-    death: number
-  }
-}
-
-function formatMergedMapStats(
+// 构建合并模式的地图统计列表
+function buildMergedMapStatsList(
   solData: MapStatsData[],
   mpData: MapStatsData[],
   dataManager: DataManager,
   type: string
-): string {
-  const mergedMap = new Map<string, MergedMapData>()
+): TemplateMapStat[] {
+  interface MergedData {
+    baseName: string
+    mapImage: string | null
+    sol?: { profit: number; totalGames: number; escaped: number; kill: number; failed: number }
+    mp?: { win: number; totalGames: number; score: number; gameTime: number; kill: number; assist: number; death: number }
+  }
+
+  const mergedMap = new Map<string, MergedData>()
 
   for (const item of solData) {
     const mapName = item.mapName || dataManager.getMapName(item.mapId)
@@ -243,7 +340,7 @@ function formatMergedMapStats(
     const d = item.data
 
     if (!mergedMap.has(baseName)) {
-      mergedMap.set(baseName, { baseName })
+      mergedMap.set(baseName, { baseName, mapImage: dataManager.getMapImagePath(mapName, 'sol') })
     }
 
     const merged = mergedMap.get(baseName)!
@@ -264,12 +361,16 @@ function formatMergedMapStats(
     const d = item.data
 
     if (!mergedMap.has(baseName)) {
-      mergedMap.set(baseName, { baseName })
+      mergedMap.set(baseName, { baseName, mapImage: dataManager.getMapImagePath(mapName, 'mp') })
     }
 
     const merged = mergedMap.get(baseName)!
     if (!merged.mp) {
       merged.mp = { win: 0, totalGames: 0, score: 0, gameTime: 0, kill: 0, assist: 0, death: 0 }
+    }
+    // 如果有 mp 数据，优先使用 mp 的地图图片
+    if (!merged.mapImage) {
+      merged.mapImage = dataManager.getMapImagePath(mapName, 'mp')
     }
 
     merged.mp.win += d.winnum || 0
@@ -281,28 +382,44 @@ function formatMergedMapStats(
     merged.mp.death += d.death || 0
   }
 
-  let message = '【地图统计数据（合并）】\n'
-
+  // 排序并转换为模板数据
   const sortedMaps = Array.from(mergedMap.values()).sort((a, b) => {
     const aTotal = (a.sol?.totalGames || 0) + (a.mp?.totalGames || 0)
     const bTotal = (b.sol?.totalGames || 0) + (b.mp?.totalGames || 0)
     return bTotal - aTotal
   })
 
-  for (const map of sortedMaps) {
-    message += `\n【${map.baseName}】\n`
+  return sortedMaps.map(map => {
+    const result: TemplateMapStat = {
+      mapName: map.baseName,
+      mapImage: map.mapImage
+    }
 
     if (map.sol && (!type || type === 'sol')) {
-      const escapeRate = calculateRate(map.sol.escaped, map.sol.totalGames)
-      message += `烽火: ${formatNumber(map.sol.totalGames)}局 | 撤离${formatNumber(map.sol.escaped)}(${escapeRate}) | 净收益${formatProfit(map.sol.profit)}\n`
+      result.sol = {
+        profit: formatProfit(map.sol.profit),
+        totalGames: formatNumber(map.sol.totalGames),
+        escaped: formatNumber(map.sol.escaped),
+        escapeRate: calculateRate(map.sol.escaped, map.sol.totalGames),
+        kill: formatNumber(map.sol.kill),
+        failed: formatNumber(map.sol.failed)
+      }
     }
 
     if (map.mp && (!type || type === 'mp')) {
-      const winRate = calculateRate(map.mp.win, map.mp.totalGames)
-      const kda = calculateKDA(map.mp.kill, map.mp.assist, map.mp.death)
-      message += `全面: ${formatNumber(map.mp.totalGames)}局 | 胜${formatNumber(map.mp.win)}(${winRate}) | KDA ${kda}\n`
+      result.mp = {
+        win: formatNumber(map.mp.win),
+        totalGames: formatNumber(map.mp.totalGames),
+        winRate: calculateRate(map.mp.win, map.mp.totalGames),
+        score: formatNumber(map.mp.score),
+        gameTime: formatDuration(map.mp.gameTime),
+        kill: formatNumber(map.mp.kill),
+        assist: formatNumber(map.mp.assist),
+        death: formatNumber(map.mp.death),
+        kda: calculateKDA(map.mp.kill, map.mp.assist, map.mp.death)
+      }
     }
-  }
 
-  return message.trim()
+    return result
+  })
 }

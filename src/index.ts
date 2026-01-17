@@ -4,6 +4,7 @@ import { ApiService } from './api'
 import { DataManager } from './data'
 import { extendDatabase } from './database'
 import { registerMiddleware } from './middleware'
+import { Renderer, createRenderer } from './render'
 
 // Account commands
 import { registerLoginCommands, registerAccountCommands } from './commands/account'
@@ -41,8 +42,8 @@ export const name = 'delta-force'
 export { Config } from './config'
 
 export const inject = {
-  required: ['http', 'database'],
-  optional: ['puppeteer', 'cron'],
+  required: ['http', 'database', 'puppeteer'],
+  optional: ['cron'],
 }
 
 export function apply(ctx: Context, config: Config) {
@@ -61,6 +62,9 @@ export function apply(ctx: Context, config: Config) {
 
   // 初始化数据管理器
   const dataManager = new DataManager(ctx, api)
+
+  // 初始化渲染器
+  const renderer = createRenderer(ctx)
 
   // 异步初始化数据
   Promise.all([
@@ -139,13 +143,13 @@ export function apply(ctx: Context, config: Config) {
 
   // 注册各功能模块
   registerLoginCommands(ctx, config, api)
-  registerInfoCommands(ctx, api, dataManager)
-  registerDailyCommands(ctx, api, dataManager)
-  registerWeeklyCommands(ctx, api, dataManager)
-  registerRecordCommands(ctx, api, dataManager)
+  registerInfoCommands(ctx, api, dataManager, renderer)
+  registerDailyCommands(ctx, api, dataManager, renderer)
+  registerWeeklyCommands(ctx, api, dataManager, renderer)
+  registerRecordCommands(ctx, api, dataManager, renderer)
   registerAccountCommands(ctx, config, api)
   registerPasswordCommands(ctx, api)
-  registerMapStatsCommands(ctx, api, dataManager)
+  registerMapStatsCommands(ctx, api, dataManager, renderer)
   registerAiCommands(ctx, api, dataManager)
   registerObjectCommands(ctx, api)
   registerPriceCommands(ctx, api)
