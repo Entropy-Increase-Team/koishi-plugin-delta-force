@@ -33,6 +33,12 @@ interface AudioData {
   categories: Record<string, string>
 }
 
+interface AiPreset {
+  code: string
+  name: string
+  isDefault?: boolean
+}
+
 // 数据缓存
 let mapData: Map<string, string> | null = null
 let operatorData: Map<string, string> | null = null
@@ -40,6 +46,7 @@ let rankScoreData: RankScoreData | null = null
 let audioTagsData: AudioTagsData | null = null
 let audioCharactersData: Record<string, string> | null = null
 let audioCategoriesData: Record<string, string> | null = null
+let aiPresetsData: AiPreset[] | null = null
 
 // 数据库缓存键前缀
 const CACHE_PREFIX = 'delta_force_'
@@ -481,5 +488,31 @@ export class DataManager {
    */
   isValidAudioCharacter(keyword: string): boolean {
     return this.getAudioCharacter(keyword) !== null
+  }
+
+  /**
+   * 获取AI评价预设列表
+   * @returns AI预设列表
+   */
+  getAiPresets(): AiPreset[] {
+    return aiPresetsData || []
+  }
+
+  /**
+   * 设置AI评价预设列表（供外部更新）
+   * @param presets 预设列表
+   */
+  setAiPresets(presets: AiPreset[]): void {
+    aiPresetsData = presets
+  }
+
+  /**
+   * 查找AI预设（按code或name）
+   * @param input 预设code或name
+   * @returns 匹配的预设或null
+   */
+  findAiPreset(input: string): AiPreset | null {
+    if (!aiPresetsData) return null
+    return aiPresetsData.find(p => p.code === input || p.name === input) || null
   }
 }

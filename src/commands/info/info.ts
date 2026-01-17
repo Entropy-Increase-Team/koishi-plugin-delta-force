@@ -1,8 +1,8 @@
 import { Context } from 'koishi'
-import { ApiService } from '../api'
-import { DataManager } from '../data'
-import { getActiveToken } from '../database'
-import { handleApiError } from '../utils'
+import { ApiService } from '../../api'
+import { DataManager } from '../../data'
+import { getActiveToken } from '../../database'
+import { handleApiError } from '../../utils'
 
 export function registerInfoCommands(
   ctx: Context,

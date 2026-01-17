@@ -1,8 +1,8 @@
 import { Context, h } from 'koishi'
-import { Config } from '../config'
-import { ApiService } from '../api'
-import { getGroupActiveToken, setGroupActiveToken, getTokenGroup } from '../database'
-import { sleep } from '../utils'
+import { Config } from '../../config'
+import { ApiService } from '../../api'
+import { getGroupActiveToken, setGroupActiveToken, getTokenGroup } from '../../database'
+import { sleep } from '../../utils'
 
 export function registerLoginCommands(
   ctx: Context,
@@ -12,9 +12,9 @@ export function registerLoginCommands(
   const logger = ctx.logger('delta-force')
 
   ctx.command('df.login [平台:string]', '登录账号')
-    .option('platform', '-p <platform:string> 登录平台（qq/wechat/wegame/qqsafe/wegame/wechat）', { fallback: 'qq' })
-    .action(async ({ session, options }) => {
-      let platform = options.platform || 'qq'
+    .alias('df.登录')
+    .action(async ({ session, options }, platform) => {
+      platform = platform || 'qq'
       const userId = session.userId
       const userPlatform = session.platform
 
@@ -243,13 +243,14 @@ export function registerLoginCommands(
   
   // 角色绑定指令
   ctx.command('df.bind [token:string]', '绑定游戏角色')
+    .alias('df.角色绑定')
     .action(async ({ session }, token) => {
       const userId = session.userId
       const userPlatform = session.platform
 
       // 如果没有提供 token，使用当前激活的 token
       if (!token) {
-        const { getActiveToken } = await import('../database')
+        const { getActiveToken } = await import('../../database')
         token = await getActiveToken(ctx, userId, userPlatform)
       }
 

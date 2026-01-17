@@ -1,0 +1,6 @@
+export { registerPriceCommands } from './price'
+export { registerObjectCommands } from './object'
+export { registerAiCommands } from './ai'
+export { registerPasswordCommands } from './password'
+export { registerSolutionCommands } from './solution'
+export { registerRoomCommands } from './room'

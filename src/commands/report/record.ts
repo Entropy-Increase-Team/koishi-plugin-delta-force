@@ -1,8 +1,8 @@
 import { Context } from 'koishi'
-import { ApiService } from '../api'
-import { DataManager } from '../data'
-import { getActiveToken } from '../database'
-import { handleApiError, formatDuration } from '../utils'
+import { ApiService } from '../../api'
+import { DataManager } from '../../data'
+import { getActiveToken } from '../../database'
+import { handleApiError, formatDuration } from '../../utils'
 
 export function registerRecordCommands(
   ctx: Context,
@@ -11,9 +11,8 @@ export function registerRecordCommands(
 ) {
   const logger = ctx.logger('delta-force')
 
-  // 主战绩命令 - 支持多种别名
   ctx.command('df.record [...args:string]', '查看战绩')
-    .alias('战绩')
+    .alias('df.战绩')
     .action(async ({ session }, ...args) => {
       const userId = session.userId
       const platform = session.platform
@@ -55,9 +54,9 @@ export function registerRecordCommands(
         let message = `【${modeName}战绩 - 第${page}页】\n\n`
 
         if (mode === 'sol') {
-          message += formatSolRecords(records, page, dataManager)
+          message += formatSolRecords(records as SolRecord[], page, dataManager)
         } else {
-          message += formatMpRecords(records, page, dataManager)
+          message += formatMpRecords(records as MpRecord[], page, dataManager)
         }
 
         return message.trim()

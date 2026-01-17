@@ -8,7 +8,7 @@ Delta Force API 是一个基于 Koa 框架的游戏数据查询和管理系统�
 
 **对于接口任何返回数据中不懂的部分，请看https://delta-force.apifox.cn，该接口文档由浅巷墨黎整理**
 
-**版本号：v2.1.6**
+**版本号：v2.2.3**
 
 ## WebSocket 服务
 
@@ -3628,8 +3628,9 @@ GET /df/person/weeklyRecord?frameworkToken=xxxx&type=sol&isShowNullFriend=false&
 ```
 **参数说明**
 - `type`：游戏模式（sol和mp分别为烽火地带和全面战场）（可选，默认查全部）
-- `isShowNullFriend`：是否展示空值队友（true和false）（可选，默认为true）
 - `日期`:周末日期（格式：20250622、20250706）（可选，默认最新周）
+
+**注意**：本次周报直接更新在原接口上，新增和移除了一些字段，请自行请求后查看，队友数据在friends字段里，高光对局数据在highlights字段里
 
 ### 个人信息
 ```http
@@ -3645,6 +3646,36 @@ GET /df/person/PersonalData?frameworkToken=xxxx&type=sol&seasonid=5
 **参数说明**
 - `type`：游戏模式（sol和mp分别为烽火地带和全面战场）（可选，默认查全部）
 - `seasonid`：赛季ID（可选，默认全部赛季合计，仅支持单赛季）
+
+### 地图数据统计
+```http
+GET /df/person/mapStats?frameworkToken=xxxx&type=sol&serial=all
+```
+**参数说明**
+- `type`：游戏模式（sol-烽火地带，mp-全面战场）（必选）
+- `serial`/`seasonid`：赛季ID（必选），支持以下格式：
+  - 单赛季：`5`
+  - 多赛季：`4,5,6`（逗号分隔，数据会合并）
+  - 全部赛季：`all`（查询1-7赛季并合并数据）
+- `mapId`：指定地图ID（可选，多个用逗号分隔，默认查询该模式所有地图）
+
+**响应字段说明**
+
+烽火地带（sol）：
+- `a1`：净收益
+- `cs`/`zdj`：总对局
+- `isescapednum`：撤离数
+- `killnum`：击杀数
+- `nums`：撤离失败数
+
+全面战场（mp）：
+- `winnum`：胜利局数
+- `zdjnum`：总对局数
+- `score`：总得分
+- `gametime`：游戏时长（秒）
+- `killnum`：总击杀数
+- `assist`：总助攻数
+- `death`：总死亡数
 
 ### 流水查询
 ```http
@@ -3753,21 +3784,22 @@ GET /df/person/redone?frameworkToken=xxxxx&objectid=15080050058
 }
 ```
 
-### AI锐评
+### AI评价（支持多预设）
 ```http
 POST /df/person/ai
 ```
 
-**功能说明**：使用Dify AI对玩家战绩进行智能分析和点评，支持烽火地带和全面战场两种游戏模式，每种模式使用独立的AI应用。
+**功能说明**：使用Dify AI对玩家战绩进行智能分析和点评，支持烽火地带和全面战场两种游戏模式，每种模式使用独立的AI应用。现已支持多种评价预设（如锐评、雌小鬼等），每个预设使用不同的AI应用。
 
 **参数 (body/json)**：
 - `frameworkToken`：框架Token（必填）
 - `type`：游戏模式（必填）
   - `sol`：烽火地带（使用烽火地带专用AI应用）
   - `mp`：全面战场（使用全面战场专用AI应用）
+- `preset`：评价预设代码（可选，默认使用配置的默认预设）
 - `conversation_id`：对话ID（可选，用于继续对话）
 
-**请求示例（烽火地带）**：
+**请求示例（使用默认预设）**：
 ```json
 {
   "frameworkToken": "xxxxx-xxxxx-xxxxx-xxxxx",
@@ -3775,11 +3807,22 @@ POST /df/person/ai
 }
 ```
 
-**请求示例（全面战场）**：
+**请求示例（指定预设）**：
 ```json
 {
   "frameworkToken": "xxxxx-xxxxx-xxxxx-xxxxx",
-  "type": "mp"
+  "type": "mp",
+  "preset": "cxg"
+}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": { ... },
+  "preset": "rp",
+  "presetName": "锐评"
 }
 ```
 
@@ -3789,6 +3832,25 @@ POST /df/person/ai
 2. **日报数据**：最近一天的战绩表现
 3. **周报数据**：最近一周的战绩趋势
 4. **最近战绩**：最近5场对局的详细数据
+5. **地图统计**：所有赛季的地图数据统计
+
+### 获取AI评价预设列表
+```http
+GET /df/person/ai/presets
+```
+
+**功能说明**：获取所有可用的AI评价预设列表。
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    { "code": "rp", "name": "锐评", "isDefault": true },
+    { "code": "cxg", "name": "雌小鬼", "isDefault": false }
+  ]
+}
+```
 
 ## 音频语音接口
 
@@ -5297,3 +5359,1002 @@ T=60s:   服务器检查 isAlive = false ✗，立即断开连接
    - 只有管理员 clientId 才能执行任务管理操作（启动、停止、查询状态）
    - 所有管理操作都会记录到管理员操作日志中
 8. **任务互斥**：建议 OCR 服务器实现任务互斥机制，确保同一时间只运行一个任务
+
+---
+
+## 任务系统 API
+
+任务系统插件提供三角洲行动游戏完整任务数据的查询接口，包括部门任务线、赛季任务、命运契约等。
+
+### 任务线接口
+
+#### 1. 获取所有任务线
+
+```http
+GET /df/quest/lines
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "questLineId": 1,
+      "questType": 1,
+      "rootQuestId": 1001,
+      "lineName": { "sourceString": "震荡危情" },
+      "openLevel": 1,
+      "seasonId": 0,
+      "merchantId": 0
+    },
+    {
+      "questLineId": 2,
+      "questType": 1,
+      "rootQuestId": 2001,
+      "lineName": { "sourceString": "跨越生命线" },
+      "openLevel": 5,
+      "seasonId": 0,
+      "merchantId": 0
+    }
+  ],
+  "total": 11
+}
+```
+
+**字段说明**：
+- `questLineId`: 任务线ID
+- `questType`: 类型（1=主线, 2=支线）
+- `rootQuestId`: 起始任务ID
+- `lineName`: 任务线名称（本地化字符串）
+- `openLevel`: 开放等级
+- `seasonId`: 赛季ID（0=非赛季任务）
+
+#### 2. 获取任务线详情
+
+```http
+GET /df/quest/line/:lineId
+```
+
+**路径参数**：
+- `lineId`: 任务线ID
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "questLineId": 1,
+    "questType": 1,
+    "rootQuestId": 1001,
+    "lineName": { "sourceString": "震荡危情" },
+    "lineCover": "/Game/UI/QuestLine/Cover_1.png",
+    "openLevel": 1,
+    "quests": [
+      {
+        "questId": 1001,
+        "name": { "sourceString": "初入阿萨拉" },
+        "desc": { "sourceString": "前往阿萨拉地区..." },
+        "questType": 1,
+        "questClass": 1,
+        "acceptRequiredLevel": 1,
+        "objectiveList": [10001, 10002],
+        "rewardList": [20001]
+      }
+    ]
+  }
+}
+```
+
+#### 3. 获取任务线树形结构
+
+```http
+GET /df/quest/line/:lineId/tree
+```
+
+**路径参数**：
+- `lineId`: 任务线ID
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "questLine": {
+      "questLineId": 1,
+      "lineName": { "sourceString": "震荡危情" }
+    },
+    "tree": {
+      "questId": 1001,
+      "name": { "sourceString": "初入阿萨拉" },
+      "level": 1,
+      "children": [
+        {
+          "questId": 1002,
+          "name": { "sourceString": "探索前哨" },
+          "level": 2,
+          "children": [...]
+        }
+      ]
+    }
+  }
+}
+```
+
+### 任务接口
+
+#### 1. 获取任务详情
+
+```http
+GET /df/quest/:questId
+```
+
+**路径参数**：
+- `questId`: 任务ID
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "questId": 1001,
+    "name": { "sourceString": "初入阿萨拉" },
+    "desc": { "sourceString": "前往阿萨拉地区..." },
+    "questType": 1,
+    "questClass": 1,
+    "acceptRequiredLevel": 1,
+    "previousIdList": [],
+    "objectiveList": [10001, 10002],
+    "rewardList": [20001, 20002],
+    "objectivesDetail": [
+      {
+        "objectiveId": 10001,
+        "type": 1,
+        "objectiveDesc": { "sourceString": "抵达营地" },
+        "requiredCount": 1
+      }
+    ],
+    "rewardsDetail": [
+      {
+        "rewardId": 20001,
+        "type": 1,
+        "itemId": 10001,
+        "number": 1000
+      }
+    ],
+    "previousQuestsDetail": [],
+    "nextQuestsDetail": [
+      { "questId": 1002, "name": { "sourceString": "探索前哨" } }
+    ]
+  }
+}
+```
+
+#### 2. 搜索任务
+
+```http
+GET /df/quest/search
+```
+
+**查询参数**：
+- `keyword`: 搜索关键字（按任务名称模糊匹配）
+- `type`: 任务类型筛选
+- `minLevel`: 最低等级筛选
+- `maxLevel`: 最高等级筛选
+- `page`: 页码（默认1）
+- `limit`: 每页数量（默认20）
+
+**请求示例**：
+```http
+GET /df/quest/search?keyword=武器&minLevel=10&maxLevel=20&page=1&limit=10
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "questId": 2015,
+      "name": { "sourceString": "全副武装" },
+      "desc": { "sourceString": "收集指定武器..." },
+      "questType": 1,
+      "questClass": 2,
+      "acceptRequiredLevel": 15
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "pages": 1
+  }
+}
+```
+
+#### 3. 获取任务目标
+
+```http
+GET /df/quest/objectives/:questId
+```
+
+**路径参数**：
+- `questId`: 任务ID
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "objectiveId": 10001,
+      "type": 1,
+      "objectiveDesc": { "sourceString": "抵达指定区域" },
+      "requiredCount": 1,
+      "mapId": [2201],
+      "bShowTracking": true
+    },
+    {
+      "objectiveId": 10002,
+      "type": 3,
+      "objectiveDesc": { "sourceString": "击杀敌人" },
+      "requiredCount": 5,
+      "timeLimit": 300
+    }
+  ]
+}
+```
+
+#### 4. 获取任务奖励
+
+```http
+GET /df/quest/rewards/:questId
+```
+
+**路径参数**：
+- `questId`: 任务ID
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "rewardId": 20001,
+      "type": 1,
+      "itemId": 10001,
+      "number": 1000,
+      "bindType": 0,
+      "importantReward": false
+    },
+    {
+      "rewardId": 20002,
+      "type": 2,
+      "itemId": 50001,
+      "number": 1,
+      "importantReward": true
+    }
+  ]
+}
+```
+
+### 赛季任务接口
+
+#### 1. 获取赛季任务线列表
+
+```http
+GET /df/quest/season/lines
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "lineId": 1,
+      "name": { "sourceString": "S1起源" },
+      "seasonIdArr": [1],
+      "openLevel": 1,
+      "finalQuestId": 9001
+    },
+    {
+      "lineId": 2,
+      "name": { "sourceString": "焰火" },
+      "seasonIdArr": [2],
+      "openLevel": 1,
+      "finalQuestId": 9002
+    }
+  ],
+  "total": 6
+}
+```
+
+#### 2. 获取赛季任务线详情
+
+```http
+GET /df/quest/season/line/:lineId
+```
+
+**路径参数**：
+- `lineId`: 赛季任务线ID
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "lineId": 1,
+    "name": { "sourceString": "S1起源" },
+    "desc": { "sourceString": "赛季任务描述..." },
+    "seasonIdArr": [1],
+    "stages": [
+      {
+        "stageId": 1,
+        "name": { "sourceString": "蛰伏" },
+        "stageSequence": 1,
+        "stageUnlockStarCount": 0,
+        "mainGroup": {
+          "groupId": 1,
+          "name": { "sourceString": "主线任务" },
+          "groupType": 1,
+          "questIdArr": [3001, 3002, 3003]
+        },
+        "subGroups": [
+          {
+            "groupId": 2,
+            "name": { "sourceString": "支线任务" },
+            "groupType": 2,
+            "questIdArr": [4001, 4002]
+          }
+        ]
+      }
+    ],
+    "fateQuests": [
+      {
+        "fateQuestId": 1,
+        "questId": 5001,
+        "seasonId": 1,
+        "fateQuestSequence": 1
+      }
+    ]
+  }
+}
+```
+
+#### 3. 获取赛季阶段列表
+
+```http
+GET /df/quest/season/stages
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "stageId": 1,
+      "name": { "sourceString": "蛰伏" },
+      "stageSequence": 1,
+      "stageMainGroup": 1,
+      "stageSubGroupArr": [2, 3],
+      "stageUnlockStarCount": 0
+    },
+    {
+      "stageId": 2,
+      "name": { "sourceString": "信号源" },
+      "stageSequence": 2,
+      "stageUnlockStarCount": 10
+    }
+  ],
+  "total": 24
+}
+```
+
+#### 4. 获取赛季任务分组
+
+```http
+GET /df/quest/season/groups
+```
+
+**查询参数**：
+- `type`: 分组类型筛选（1=主线, 2=标准支线, 3=备用支线）
+
+**请求示例**：
+```http
+GET /df/quest/season/groups?type=1
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "groupId": 1,
+      "name": { "sourceString": "主线任务" },
+      "titleName": { "sourceString": "第一章" },
+      "groupType": 1,
+      "sequence": 1,
+      "questIdArr": [3001, 3002, 3003],
+      "gropStarCount": 3
+    }
+  ],
+  "total": 16
+}
+```
+
+### 命运契约接口
+
+#### 获取命运契约列表
+
+```http
+GET /df/quest/fate
+```
+
+**查询参数**：
+- `seasonId`: 按赛季ID筛选（可选）
+
+**请求示例**：
+```http
+GET /df/quest/fate?seasonId=10007
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "fateQuestId": 170001,
+      "questId": 78001,
+      "seasonId": 10007,
+      "fateQuestSequence": 1,
+      "fateQuestUnlockTime": 0,
+      "fateQuestImg": "/Game/UI/Fate/Fate_1.png",
+      "questDetail": {
+        "questId": 78001,
+        "name": { "sourceString": "支配标杆" },
+        "desc": { "sourceString": "在烽火地带的任意地图中击败领主..." }
+      }
+    }
+  ],
+  "total": 18
+}
+```
+
+### 收集者系统接口
+
+收集者是赛季任务中的随机收集任务系统，玩家需要收集指定物品以获得奖励。
+
+#### 获取收集者物品分组
+
+```http
+GET /df/quest/collector/groups
+```
+
+**查询参数**：
+- `type`: 按分组类型筛选（可选，1=低级, 2=中级, 3=高级）
+
+**请求示例**：
+```http
+GET /df/quest/collector/groups?type=1
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "collectorGroupId": 170001,
+      "collectorGroupName": { "sourceString": "收集木制把手" },
+      "collectorGroupDesc": { "sourceString": "木制把手可以在地图中捡取获得" },
+      "collectorGroupType": 1,
+      "prob": 1000,
+      "itemListArr": [400001],
+      "itemCountArr": [4]
+    }
+  ],
+  "total": 45,
+  "typeStats": {
+    "type1": 15,
+    "type2": 15,
+    "type3": 15
+  }
+}
+```
+
+**字段说明**：
+| 字段 | 说明 |
+|------|------|
+| `collectorGroupId` | 收集者分组ID |
+| `collectorGroupName` | 收集任务名称 |
+| `collectorGroupDesc` | 收集任务描述 |
+| `collectorGroupType` | 类型 (1=低级, 2=中级, 3=高级) |
+| `prob` | 概率权重（用于随机抽取） |
+| `itemListArr` | 需要收集的物品ID列表 |
+| `itemCountArr` | 需要收集的物品数量 |
+| `typeStats` | 按类型统计数量 |
+
+#### 获取收集者奖励配置
+
+```http
+GET /df/quest/collector/rewards
+```
+
+**查询参数**：
+- `seasonId`: 按赛季ID筛选（可选）
+
+**请求示例**：
+```http
+GET /df/quest/collector/rewards?seasonId=10007
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "collectorRewardId": 170001,
+      "seasonId": 10007,
+      "collectorCount": 4,
+      "rewardIdArr": [62025]
+    },
+    {
+      "collectorRewardId": 170002,
+      "seasonId": 10007,
+      "collectorCount": 8,
+      "rewardIdArr": [62026]
+    }
+  ],
+  "total": 12
+}
+```
+
+**字段说明**：
+| 字段 | 说明 |
+|------|------|
+| `collectorRewardId` | 奖励配置ID |
+| `seasonId` | 所属赛季ID |
+| `collectorCount` | 完成多少次收集后获得此奖励 |
+| `rewardIdArr` | 奖励ID列表（关联 QuestRewards） |
+
+#### 获取收集者槽位概率
+
+```http
+GET /df/quest/collector/slots
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "collectorSlotId": 1,
+      "groupProb1": 6000,
+      "groupProb2": 3000,
+      "groupProb3": 1000
+    },
+    {
+      "collectorSlotId": 2,
+      "groupProb1": 5000,
+      "groupProb2": 3500,
+      "groupProb3": 1500
+    }
+  ],
+  "total": 3
+}
+```
+
+**字段说明**：
+| 字段 | 说明 |
+|------|------|
+| `collectorSlotId` | 槽位ID（对应收集者任务栏位） |
+| `groupProb1` | 低级分组概率（万分比，6000=60%） |
+| `groupProb2` | 中级分组概率（万分比） |
+| `groupProb3` | 高级分组概率（万分比） |
+
+### 统计接口
+
+#### 获取任务统计信息
+
+```http
+GET /df/quest/stats
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "questLines": 9,
+    "quests": 486,
+    "objectives": 1200,
+    "rewards": 800,
+    "seasonLines": 3,
+    "stages": 12,
+    "groups": 48,
+    "fateQuests": 18,
+    "conditions": 150,
+    "collectorGroups": 45,
+    "collectorRewards": 12,
+    "collectorSlots": 3
+  }
+}
+```
+
+### 数据结构说明
+
+#### LocalizedString（本地化字符串）
+
+所有文本字段使用本地化字符串格式：
+
+```json
+{
+  "sourceString": "中文原文",
+  "tableId": "翻译表ID",
+  "key": "翻译键",
+  "localizedString": "本地化后的文本"
+}
+```
+
+**使用建议**：直接使用 `sourceString` 获取中文文本。
+
+#### 任务类型 (questType)
+
+| 值 | 说明 |
+|----|------|
+| 1 | 主线任务 |
+| 2 | 支线任务 |
+| 3 | 赛季任务 |
+| 4 | 命运契约 |
+
+#### 奖励类型 (type)
+
+| 值 | 说明 |
+|----|------|
+| 1 | 货币 |
+| 2 | 物品 |
+| 3 | 经验 |
+
+### 注意事项
+
+1. 任务链关系通过 `previousIdList` 字段表示前置任务
+2. 所有接口返回的文本字段为 `LocalizedString` 对象，使用 `sourceString` 属性获取中文
+3. **收集者系统**是赛季任务的子系统，玩家随机获得收集任务并收集物品换取奖励
+
+### 任务系统架构
+
+```
+任务系统
+├── 部门任务线 (QuestLine)          # 9条，merchantId关联NPC
+│   └── 任务 (Quest)                # 通过previousIdList形成任务链
+│       ├── 任务目标 (QuestObjective)
+│       └── 任务奖励 (QuestReward)
+│
+├── 赛季任务线 (SeasonQuestLine)    # 3条，按赛季分组
+│   └── 赛季阶段 (SeasonQuestStage) # 每赛季4阶段
+│       └── 任务分组 (SeasonQuestGroup)
+│           └── 任务 (Quest)
+│
+├── 收集者系统 (Collector)           # 赛季子系统
+│   ├── 物品分组 (CollectorGroup)    # 45个，分3个等级
+│   ├── 奖励配置 (CollectorReward)   # 每赛季6个奖励等级
+│   └── 槽位概率 (CollectorSlot)     # 3个槽位
+│
+└── 命运契约 (FateQuest)             # 18个，赛季挑战任务
+```
+
+---
+
+## TTS 语音合成服务
+
+TTS（Text-to-Speech）语音合成服务基于 IndexTTS2 引擎，支持音色克隆和情感控制。
+
+### 接口列表
+
+| 接口 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| 健康检查 | GET | `/df/tts/health` | 检查 TTS 服务状态 |
+| 获取预设列表 | GET | `/df/tts/presets` | 获取所有角色预设 |
+| 获取角色详情 | GET | `/df/tts/preset?characterId=xxx` | 获取指定角色预设详情 |
+| 语音合成 | POST | `/df/tts/synthesize` | 文本转语音（队列模式） |
+| 查询任务状态 | GET | `/df/tts/task?taskId=xxx` | 查询合成任务状态 |
+| 查询队列状态 | GET | `/df/tts/queue` | 查询当前队列状态 |
+| 音频下载 | GET | `/df/tts/audio/:filename` | 下载合成的音频文件 |
+
+### 健康检查
+
+```http
+GET /df/tts/health
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "TTS服务正常",
+  "presetsLoaded": true,
+  "presetCount": 1,
+  "timestamp": "2024-01-12T10:00:00.000Z"
+}
+```
+
+### 获取预设列表
+
+```http
+GET /df/tts/presets
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "defaultPreset": "maiXiaowen",
+    "presets": [
+      {
+        "id": "maiXiaowen",
+        "name": "麦晓雯",
+        "description": "活泼开朗的女性角色，适合轻松愉快的场景",
+        "defaultEmotion": "neutral",
+        "emotions": [
+          { "id": "neutral", "name": "中性", "description": "平静自然的语调" },
+          { "id": "happy", "name": "开心", "description": "愉快活泼的语调" },
+          { "id": "sad", "name": "悲伤", "description": "低落伤感的语调" },
+          { "id": "angry", "name": "愤怒", "description": "生气不满的语调" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 获取角色详情
+
+```http
+GET /df/tts/preset?characterId=maiXiaowen
+```
+
+**查询参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `characterId` | string | ✅ | 角色ID，如 `maiXiaowen` |
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "id": "maiXiaowen",
+    "name": "麦晓雯",
+    "description": "活泼开朗的女性角色",
+    "defaultEmotion": "neutral",
+    "voiceFileExists": true,
+    "emotions": [
+      {
+        "id": "neutral",
+        "name": "中性",
+        "description": "平静自然的语调",
+        "emo_alpha": 1.0,
+        "emo_vector": null
+      },
+      {
+        "id": "happy",
+        "name": "开心",
+        "description": "愉快活泼的语调",
+        "emo_alpha": 0.8,
+        "emo_vector": "1,0,0,0,0,0,0,0"
+      }
+    ]
+  }
+}
+```
+
+### 语音合成（队列模式）
+
+> ⚠️ 由于 TTS 后端只能同时处理一个合成任务，所有请求会进入队列异步处理。
+
+```http
+POST /df/tts/synthesize
+Content-Type: application/json
+```
+
+#### 请求参数
+
+**通用参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `text` | string | ✅ | 要合成的文本（最大 1000 字符） |
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `character` | string | ✅ | 角色ID，如 `maiXiaowen` |
+| `emotion` | string | ❌ | 情感ID，如 `happy`、`sad`，默认使用角色默认情感 |
+
+**请求示例**：
+```json
+{
+  "text": "你好，我是麦晓雯，很高兴认识你！",
+  "character": "maiXiaowen",
+  "emotion": "happy"
+}
+```
+
+#### 响应（202 Accepted）
+
+请求成功后返回任务ID，需通过 `/df/tts/task?taskId=xxx` 查询任务状态和结果。
+
+```json
+{
+  "success": true,
+  "message": "任务已加入队列，请稍后查询结果",
+  "data": {
+    "taskId": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "queued",
+    "position": 3,
+    "queueLength": 3,
+    "params": {
+      "text": "你好，我是麦晓雯...",
+      "text_length": 20,
+      "character": "maiXiaowen",
+      "emotion": "happy"
+    },
+    "queryUrl": "/df/tts/task?taskId=550e8400-e29b-41d4-a716-446655440000",
+    "createdAt": "2024-01-12T10:00:00.000Z"
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `taskId` | 任务唯一标识（UUID），用于查询任务状态 |
+| `position` | 当前在队列中的位置 |
+| `queueLength` | 当前队列总长度 |
+| `queryUrl` | 查询任务状态的接口路径 |
+
+### 查询任务状态
+
+```http
+GET /df/tts/task?taskId=xxx
+```
+
+**任务排队中**：
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "queued",
+    "position": 2,
+    "queueLength": 3,
+    "message": "排队中，前方还有 1 个任务",
+    "createdAt": "2024-01-12T10:00:00.000Z"
+  }
+}
+```
+
+**任务处理中**：
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "processing",
+    "message": "任务正在处理中",
+    "startedAt": "2024-01-12T10:00:05.000Z"
+  }
+}
+```
+
+**任务完成**：
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "completed",
+    "result": {
+      "audio_url": "http://localhost:8000/df/tts/audio/tts_xxx.wav?token=xxx",
+      "filename": "tts_1768235107365_u1ni9s.wav",
+      "size": 135212,
+      "duration_ms": 7665,
+      "text_length": 20,
+      "character": "maiXiaowen",
+      "emotion": "happy",
+      "expires_in": "720分钟"
+    },
+    "completedAt": "2024-01-12T10:00:12.000Z"
+  }
+}
+```
+
+**任务失败**：
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "failed",
+    "error": "TTS服务处理失败",
+    "completedAt": "2024-01-12T10:00:03.000Z"
+  }
+}
+```
+
+### 查询队列状态
+
+```http
+GET /df/tts/queue
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "isProcessing": true,
+    "queueLength": 3,
+    "processingTask": {
+      "taskId": "550e8400...0000",
+      "startedAt": "2024-01-12T10:00:05.000Z"
+    },
+    "queue": [
+      { "taskId": "660e8400...0001", "position": 1, "text_length": 50 },
+      { "taskId": "770e8400...0002", "position": 2, "text_length": 30 }
+    ],
+    "totalTasksInMemory": 10
+  }
+}
+```
+
+### 音频下载
+
+```http
+GET /df/tts/audio/:filename?token=xxx
+```
+
+**说明**：
+- `token` 参数必填，从任务完成结果的 `audio_url` 中获取
+- 令牌和文件有效期 **12小时**，过期后返回 403/404
+
+**错误响应**：
+
+| 状态码 | 说明 |
+|--------|------|
+| 401 | 缺少下载令牌 |
+| 403 | 令牌无效或已过期 |
+| 404 | 文件不存在或已过期 |
+
+### 情感向量说明
+
+情感向量 `emo_vector` 是一个 8 维向量，每个维度代表一种情感的强度（0~1）：
+
+| 索引 | 情感 | 示例向量 |
+|------|------|----------|
+| 0 | 高兴 😊 | `1,0,0,0,0,0,0,0` |
+| 1 | 愤怒 😠 | `0,1,0,0,0,0,0,0` |
+| 2 | 悲伤 😢 | `0,0,1,0,0,0,0,0` |
+| 3 | 害怕 😨 | `0,0,0,1,0,0,0,0` |
+| 4 | 厌恶 🤢 | `0,0,0,0,1,0,0,0` |
+| 5 | 忧郁 😔 | `0,0,0,0,0,1,0,0` |
+| 6 | 惊讶 😲 | `0,0,0,0,0,0,1,0` |
+| 7 | 平静 😌 | `0,0,0,0,0,0,0,1` |
+
+**混合示例**：`0.8,0,0,0,0,0,0.2,0` = 高兴(0.8) + 惊讶(0.2) = 激动
+
+### 注意事项
+
+1. **队列模式**: 所有请求进入队列异步处理，通过任务ID查询结果
+2. **任务保留**: 任务数据保留 **12小时**，过期后自动清理
+3. **音频保留**: 音频文件保留 **12小时**，过期后自动删除
+4. **首次请求**: IndexTTS2 模型加载需要 30~60 秒
+5. **后续请求**: 根据文本长度，通常 5~30 秒
+6. **超时时间**: 默认 120 秒
+7. **音频格式**: 支持 WAV, MP3, AAC, M4A, OGG, FLAC

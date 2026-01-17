@@ -1,7 +1,7 @@
 import { Context, Session } from 'koishi'
-import { Config } from '../config'
-import { ApiService } from '../api'
-import { getGroupActiveToken, setGroupActiveToken, getTokenGroup } from '../database'
+import { Config } from '../../config'
+import { ApiService } from '../../api'
+import { getGroupActiveToken, setGroupActiveToken, getTokenGroup } from '../../database'
 
 export function registerAccountCommands(
   ctx: Context,
@@ -14,7 +14,8 @@ export function registerAccountCommands(
    * 判断是否为私聊
    */
   const isPrivateSession = (session: Session): boolean => {
-    return !!(session as any).isDirect || (session as any).channel?.id === 'private'
+    return !!(session as { isDirect?: boolean }).isDirect || 
+           (session as { channel?: { id?: string } }).channel?.id === 'private'
   }
 
   /**
@@ -30,8 +31,15 @@ export function registerAccountCommands(
   /**
    * 按分组整理账号
    */
-  const groupAccounts = (accounts: any[]) => {
-    const grouped: Record<string, typeof accounts> = {
+  interface AccountItem {
+    tokenType: string
+    frameworkToken: string
+    isValid: boolean
+    qqNumber?: string
+  }
+
+  const groupAccounts = (accounts: AccountItem[]) => {
+    const grouped: Record<string, AccountItem[]> = {
       qq_wechat: [],
       wegame: [],
       qqsafe: [],
@@ -54,7 +62,7 @@ export function registerAccountCommands(
   /**
    * 构建有序的账号列表
    */
-  const buildOrderedAccountList = (grouped: Record<string, any[]>) => {
+  const buildOrderedAccountList = (grouped: Record<string, AccountItem[]>) => {
     return [
       ...grouped.qq_wechat,
       ...grouped.wegame,
@@ -64,6 +72,8 @@ export function registerAccountCommands(
 
   // 账号列表
   ctx.command('df.account', '账号管理')
+    .alias('df.账号')
+    .alias('df.账号列表')
     .action(async ({ session }) => {
       const userId = session.userId
       const platform = session.platform
@@ -77,7 +87,7 @@ export function registerAccountCommands(
           return `查询账号列表失败: ${listRes?.msg || listRes?.message || '未知错误'}`
         }
 
-        const accounts = listRes.data || []
+        const accounts = (listRes.data || []) as AccountItem[]
 
         if (accounts.length === 0) {
           return '您尚未绑定任何账号，请使用 df.login 登录'
@@ -133,6 +143,9 @@ export function registerAccountCommands(
 
   // 切换账号
   ctx.command('df.switch <序号:number>', '切换账号')
+    .alias('df.切换')
+    .alias('df.切换账号')
+    .alias('df.账号切换')
     .action(async ({ session }, index) => {
       const userId = session.userId
       const platform = session.platform
@@ -146,7 +159,7 @@ export function registerAccountCommands(
           return `查询账号列表失败: ${listRes?.msg || listRes?.message || '未知错误'}`
         }
 
-        const accounts = listRes.data
+        const accounts = listRes.data as AccountItem[]
 
         // 按分组整理并构建序号列表
         const grouped = groupAccounts(accounts)
@@ -186,6 +199,8 @@ export function registerAccountCommands(
 
   // 解绑账号
   ctx.command('df.unbind <序号:number>', '解绑账号')
+    .alias('df.解绑')
+    .alias('df.删除')
     .action(async ({ session }, index) => {
       const userId = session.userId
       const platform = session.platform
@@ -198,7 +213,7 @@ export function registerAccountCommands(
           return `查询账号列表失败: ${listRes?.msg || listRes?.message || '未知错误'}`
         }
 
-        const accounts = listRes.data
+        const accounts = listRes.data as AccountItem[]
 
         // 按分组整理并构建序号列表
         const grouped = groupAccounts(accounts)
@@ -211,7 +226,7 @@ export function registerAccountCommands(
         const targetToken = allInOrder[index - 1]
 
         // 调用 API 解绑（云端删除）
-        await api.bindUser({
+        await api.unbindUser({
           platformID: userId,
           frameworkToken: targetToken.frameworkToken,
           clientID: config.clientID,
@@ -230,6 +245,62 @@ export function registerAccountCommands(
       } catch (error) {
         logger.error('解绑账号失败:', error)
         return `解绑失败: ${(error as Error).message}`
+      }
+    })
+
+  // 刷新微信登录
+  ctx.command('df.refresh.wechat', '刷新微信登录状态')
+    .alias('df.微信刷新')
+    .alias('df.刷新微信')
+    .action(async ({ session }) => {
+      const userId = session.userId
+      const platform = session.platform
+
+      const { getActiveToken } = await import('../../database')
+      const token = await getActiveToken(ctx, userId, platform)
+
+      if (!token) {
+        return '您尚未登录，请先使用 df.login 登录'
+      }
+
+      try {
+        const res = await api.refreshLogin('wechat', token)
+        if (res.code === 0 || res.success) {
+          return '微信登录状态刷新成功！'
+        }
+        return `刷新失败: ${res.msg || res.message || '未知错误'}`
+      } catch (error) {
+        logger.error('刷新微信登录失败:', error)
+        return `刷新失败: ${(error as Error).message}`
+      }
+    })
+
+  // 刷新QQ登录
+  ctx.command('df.refresh.qq', '刷新QQ登录状态')
+    .alias('df.qq刷新')
+    .alias('df.QQ刷新')
+    .alias('df.刷新qq')
+    .alias('df.刷新QQ')
+    .action(async ({ session }) => {
+      const userId = session.userId
+      const platform = session.platform
+
+      const { getActiveToken } = await import('../../database')
+      const token = await getActiveToken(ctx, userId, platform)
+
+      if (!token) {
+        return '您尚未登录，请先使用 df.login 登录'
+      }
+
+      try {
+        const res = await api.refreshLogin('qq', token)
+        if (res.code === 0 || res.success) {
+          return 'QQ登录状态刷新成功！'
+        }
+        return `刷新失败: ${res.msg || res.message || '未知错误'}`
+      } catch (error) {
+        logger.error('刷新QQ登录失败:', error)
+        return `刷新失败: ${(error as Error).message}`
       }
     })
 }

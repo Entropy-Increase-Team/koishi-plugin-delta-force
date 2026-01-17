@@ -1,9 +1,9 @@
 import { Context } from 'koishi'
-import { ApiService } from '../api'
-import { DataManager } from '../data'
-import { getActiveToken } from '../database'
-import { handleApiError } from '../utils'
-import { DailyReportData } from '../types'
+import { ApiService } from '../../api'
+import { DataManager } from '../../data'
+import { getActiveToken } from '../../database'
+import { handleApiError } from '../../utils'
+import { DailyReportData } from '../../types'
 
 export function registerDailyCommands(
   ctx: Context,
@@ -13,6 +13,7 @@ export function registerDailyCommands(
   const logger = ctx.logger('delta-force')
 
   ctx.command('df.daily [类型:string]', '查看日报')
+    .alias('df.日报')
     .action(async ({ session }, type) => {
       const userId = session.userId
       const platform = session.platform
@@ -33,7 +34,7 @@ export function registerDailyCommands(
         return formatted
       } catch (error) {
         logger.error('查询日报失败:', error)
-        return `查询失败: ${error.message}`
+        return `查询失败: ${(error as Error).message}`
       }
     })
 }

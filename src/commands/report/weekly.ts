@@ -1,9 +1,9 @@
 import { Context } from 'koishi'
-import { ApiService } from '../api'
-import { DataManager } from '../data'
-import { getActiveToken } from '../database'
-import { handleApiError, sleep } from '../utils'
-import { WeeklyReportData } from '../types'
+import { ApiService } from '../../api'
+import { DataManager } from '../../data'
+import { getActiveToken } from '../../database'
+import { handleApiError, sleep } from '../../utils'
+import { WeeklyReportData } from '../../types'
 
 export function registerWeeklyCommands(
   ctx: Context,
@@ -13,6 +13,7 @@ export function registerWeeklyCommands(
   const logger = ctx.logger('delta-force')
 
   ctx.command('df.weekly [类型:string]', '查看周报')
+    .alias('df.周报')
     .action(async ({ session }, type) => {
       const userId = session.userId
       const platform = session.platform
@@ -43,7 +44,7 @@ export function registerWeeklyCommands(
         return
       } catch (error) {
         logger.error('查询周报失败:', error)
-        return `查询失败: ${error.message}`
+        return `查询失败: ${(error as Error).message}`
       }
     })
 }
@@ -154,7 +155,7 @@ function parseAndGetName(
       try {
         const correctedJSON = s.replace(/'/g, '"').replace(/([a-zA-Z0-9_]+):/g, '"$1":')
         return JSON.parse(correctedJSON) as ParsedItem
-      } catch (e) {
+      } catch {
         return null
       }
     }).filter((item): item is ParsedItem => item !== null)
@@ -165,7 +166,7 @@ function parseAndGetName(
       (Number(a[countKey]) > Number(b[countKey]) ? a : b)
     )
     return getNameFunc(String(mostUsed[idKey]))
-  } catch (e) {
+  } catch {
     return '无'
   }
 }

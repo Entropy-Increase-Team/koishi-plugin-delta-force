@@ -1,6 +1,6 @@
 import { Context } from 'koishi'
-import { ApiService } from '../api'
-import { handleApiError } from '../utils'
+import { ApiService } from '../../api'
+import { handleApiError } from '../../utils'
 
 interface DailyKeywordItem {
   mapName: string
@@ -19,6 +19,8 @@ export function registerPasswordCommands(
 
   ctx.command('df.password', '查看每日密码')
     .alias('df.密码')
+    .alias('df.每日密码')
+    .alias('df.今日密码')
     .action(async ({ session }) => {
       try {
         const res = await api.getDailyKeyword()
