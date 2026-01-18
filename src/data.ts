@@ -64,6 +64,18 @@ export class DataManager {
     this.resourcesPath = resolve(__dirname, '../resources')
   }
 
+  /**
+   * 将相对路径转换为完整的 file:// URL
+   * 用于模板中不使用 _res_path 拼接的字段（如 record 模板的 mapBg）
+   * @param relativePath 相对于 resources 目录的路径
+   * @returns 完整的 file:// URL
+   */
+  getFullFileUrl(relativePath: string | null): string | null {
+    if (!relativePath) return null
+    const fullPath = join(this.resourcesPath, relativePath).replace(/\\/g, '/')
+    return `file:///${fullPath}`
+  }
+
   async init() {
     this.ctx.logger('delta-force').info('正在初始化数据缓存...')
 
@@ -586,7 +598,7 @@ export class DataManager {
   /**
    * 根据干员名称获取干员图片路径
    * @param operatorName 干员名称
-   * @returns 干员图片完整 file:// 路径
+   * @returns 干员图片相对路径（相对于 resources 目录，供模板使用）
    */
   getOperatorImagePath(operatorName: string): string | null {
     if (!operatorName || operatorName.includes('未知') || operatorName.includes('无')) {
@@ -598,17 +610,15 @@ export class DataManager {
       return null
     }
     
-    // 返回完整的 file:// 路径 (Windows 路径需要特殊处理)
-    const relativePath = `imgs/operator/${cleanName}.png`
-    const fullPath = join(this.resourcesPath, relativePath).replace(/\\/g, '/')
-    return `file:///${fullPath}`
+    // 返回相对路径，供模板与 _res_path 拼接使用
+    return `imgs/operator/${cleanName}.png`
   }
 
   /**
    * 根据地图名称获取地图图片路径
    * @param mapName 地图名称
    * @param mode 模式 ('sol' 烽火地带 或 'mp' 全面战场)
-   * @returns 地图图片完整 file:// 路径
+   * @returns 地图图片相对路径（相对于 resources 目录，供模板使用）
    */
   getMapImagePath(mapName: string, mode: 'sol' | 'mp' = 'sol'): string | null {
     if (!mapName || mapName.includes('未知') || mapName.includes('无')) {
@@ -620,25 +630,21 @@ export class DataManager {
     // 根据模式构建路径
     const prefix = mode === 'sol' ? '烽火-' : '全面-'
     
-    let relativePath: string
-    
     // 全面战场模式：从地图名称中提取"-"前面的部分
     if (mode === 'mp') {
       if (cleanName.includes('-')) {
         cleanName = cleanName.split('-')[0].trim()
       }
-      relativePath = `imgs/map/${prefix}${cleanName}.jpg`
+      // 返回相对路径，供模板与 _res_path 拼接使用
+      return `imgs/map/${prefix}${cleanName}.jpg`
     } else {
       // 烽火地带模式：提取基础地图名称
       let baseName = cleanName
       if (cleanName.includes('-')) {
         baseName = cleanName.split('-')[0].trim()
       }
-      relativePath = `imgs/map/${prefix}${baseName}-常规.png`
+      // 返回相对路径，供模板与 _res_path 拼接使用
+      return `imgs/map/${prefix}${baseName}-常规.png`
     }
-    
-    // 返回完整的 file:// 路径 (Windows 路径需要特殊处理)
-    const fullPath = join(this.resourcesPath, relativePath).replace(/\\/g, '/')
-    return `file:///${fullPath}`
   }
 }

@@ -262,12 +262,14 @@ export class ApiService {
   async getWeeklyReport(
     frameworkToken: string,
     type?: string,
-    isShowNullFriend?: boolean,
+    isShowNullFriend: boolean = true,
     date?: string
   ): Promise<ApiResponse> {
-    const params: Record<string, string | boolean> = { frameworkToken }
+    const params: Record<string, string> = { 
+      frameworkToken,
+      isShowNullFriend: String(isShowNullFriend)
+    }
     if (type) params.type = type
-    if (typeof isShowNullFriend !== 'undefined') params.isShowNullFriend = isShowNullFriend
     if (date) params.date = date
     return this.request('GET', '/df/person/weeklyRecord', params)
   }

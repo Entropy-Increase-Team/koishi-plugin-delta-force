@@ -2,7 +2,7 @@ import { Context } from 'koishi'
 import { ApiService } from '../../api'
 import { DataManager } from '../../data'
 import { getActiveToken } from '../../database'
-import { handleApiError } from '../../utils'
+import { handleApiError, getUserDisplayInfo } from '../../utils'
 import { Renderer } from '../../render'
 
 interface MapStatsData {
@@ -24,14 +24,6 @@ interface MapStatsData {
   }
 }
 
-// URL 解码函数
-function decodeUserInfo(str: string | undefined): string {
-  try {
-    return decodeURIComponent(str || '')
-  } catch {
-    return str || ''
-  }
-}
 
 export function registerMapStatsCommands(
   ctx: Context,
@@ -59,7 +51,14 @@ export function registerMapStatsCommands(
       let shouldMerge = false
       let hasSeasonId = false
 
+      // 处理 middleware 传递的参数（可能是单个字符串，需要拆分）
+      const allArgs: string[] = []
       for (const arg of args) {
+        const parts = arg.split(/\s+/).filter(Boolean)
+        allArgs.push(...parts)
+      }
+
+      for (const arg of allArgs) {
         if (['烽火', '烽火地带', 'sol', '摸金'].includes(arg)) {
           type = 'sol'
         } else if (['全面', '全面战场', '战场', 'mp', 'tdm'].includes(arg)) {
@@ -125,54 +124,72 @@ export function registerMapStatsCommands(
           return '暂无地图统计数据'
         }
 
-        // 获取用户信息
-        let userName = session.username || session.userId
-        let userAvatar = ''
-        try {
-          const personalInfoRes = await api.getPersonalInfo(token)
-          if (personalInfoRes?.data && personalInfoRes?.roleInfo) {
-            const { userData } = personalInfoRes.data as { userData?: { charac_name?: string; picurl?: string } }
-            const { roleInfo } = personalInfoRes
-
-            const gameUserName = decodeUserInfo(userData?.charac_name || roleInfo?.charac_name)
-            if (gameUserName) {
-              userName = gameUserName
-            }
-
-            userAvatar = decodeUserInfo(userData?.picurl || roleInfo?.picurl)
-            if (userAvatar && /^[0-9]+$/.test(userAvatar)) {
-              userAvatar = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${userAvatar}.webp`
-            }
-          }
-        } catch {
-          logger.debug('获取用户信息失败，使用默认值')
-        }
+        // 获取用户信息（使用统一函数，从 personalInfo 接口获取头像）
+        const { userName, userAvatar, qqAvatarUrl } = await getUserDisplayInfo(
+          api,
+          token,
+          session.userId,
+          session.username || session.userId
+        )
 
         // 获取当前日期
         const currentDate = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-        const qqAvatarUrl = `http://q.qlogo.cn/headimg_dl?dst_uin=${session.userId}&spec=640&img_type=jpg`
 
-        // 构建模板数据
-        const mapStatsList = buildMapStatsList(solData, mpData, dataManager, type, shouldMerge)
+        // 与云崽版保持一致：分开渲染烽火和全面两张图片
+        const seasonText = seasonid === 'all' ? '全部赛季' : `第${seasonid}赛季`
+        const messages: (string | import('koishi').h)[] = []
 
-        if (mapStatsList.length === 0) {
+        // 构建烽火地带数据
+        if ((!type || type === 'sol') && solData.length > 0) {
+          const solMapStatsList = buildMapStatsListForMode(solData, dataManager, 'sol', shouldMerge)
+          if (solMapStatsList.length > 0) {
+            const solTemplateData = {
+              userName,
+              userAvatar,
+              qqAvatarUrl,
+              currentDate,
+              backgroundImage: dataManager.getRandomBackground(),
+              type: 'sol',
+              typeName: '烽火地带',
+              seasonid: seasonText,
+              totalMaps: solMapStatsList.length,
+              mapStatsList: solMapStatsList
+            }
+            const solImage = await renderer.renderToMessage('mapStats', solTemplateData)
+            messages.push(solImage)
+          }
+        }
+
+        // 构建全面战场数据
+        if ((!type || type === 'mp') && mpData.length > 0) {
+          const mpMapStatsList = buildMapStatsListForMode(mpData, dataManager, 'mp', shouldMerge)
+          if (mpMapStatsList.length > 0) {
+            const mpTemplateData = {
+              userName,
+              userAvatar,
+              qqAvatarUrl,
+              currentDate,
+              backgroundImage: dataManager.getRandomBackground(),
+              type: 'mp',
+              typeName: '全面战场',
+              seasonid: seasonText,
+              totalMaps: mpMapStatsList.length,
+              mapStatsList: mpMapStatsList
+            }
+            const mpImage = await renderer.renderToMessage('mapStats', mpTemplateData)
+            messages.push(mpImage)
+          }
+        }
+
+        if (messages.length === 0) {
           return '暂无地图统计数据'
         }
 
-        const templateData = {
-          userName,
-          userAvatar,
-          qqAvatarUrl,
-          currentDate,
-          backgroundImage: dataManager.getRandomBackground(),
-          type: type || 'all',
-          typeName: type === 'sol' ? '烽火地带' : type === 'mp' ? '全面战场' : '全部模式',
-          seasonid: seasonid === 'all' ? '全部赛季' : `第${seasonid}赛季`,
-          totalMaps: mapStatsList.length,
-          mapStatsList
+        // 与云崽版保持一致：连续发送多张图片
+        for (const msg of messages) {
+          await session.send(msg)
         }
-
-        return renderer.renderToMessage('mapStats', templateData)
+        return
       } catch (error) {
         logger.error('查询地图统计失败:', error)
         return `查询失败: ${(error as Error).message}`
@@ -222,6 +239,33 @@ function getMapBaseName(mapName: string): string {
   return mapName ? mapName.replace(/[-（(].*$/, '').trim() : ''
 }
 
+// 获取地图图片的相对路径（供模板拼接 _res_path）
+function getMapImageRelativePath(mapName: string, mode: 'sol' | 'mp'): string | null {
+  if (!mapName || mapName.includes('未知') || mapName.includes('无')) {
+    return null
+  }
+  // 清理地图名称，移除可能的括号内容
+  let cleanName = mapName.trim().replace(/\s*\([^)]*\)/, '')
+  
+  // 根据模式构建路径
+  const prefix = mode === 'sol' ? '烽火-' : '全面-'
+  
+  // 全面战场模式：从地图名称中提取"-"前面的部分
+  if (mode === 'mp') {
+    if (cleanName.includes('-')) {
+      cleanName = cleanName.split('-')[0].trim()
+    }
+    return `imgs/map/${prefix}${cleanName}.jpg`
+  } else {
+    // 烽火地带模式：提取基础地图名称
+    let baseName = cleanName
+    if (cleanName.includes('-')) {
+      baseName = cleanName.split('-')[0].trim()
+    }
+    return `imgs/map/${prefix}${baseName}-常规.png`
+  }
+}
+
 // 模板数据接口
 interface TemplateMapStat {
   mapName: string
@@ -247,39 +291,45 @@ interface TemplateMapStat {
   }
 }
 
-// 构建模板数据列表
-function buildMapStatsList(
-  solData: MapStatsData[],
-  mpData: MapStatsData[],
+// 构建单一模式的地图统计列表（与云崽版一致：分开渲染烽火和全面）
+function buildMapStatsListForMode(
+  data: MapStatsData[],
   dataManager: DataManager,
-  type: string,
+  mode: 'sol' | 'mp',
   shouldMerge: boolean
 ): TemplateMapStat[] {
+  // 过滤掉 data 为 null 的项目（与云崽版保持一致）
+  const validData = data.filter(item => item.data !== null && item.data !== undefined)
+  
+  if (validData.length === 0) {
+    return []
+  }
+
   if (shouldMerge) {
-    return buildMergedMapStatsList(solData, mpData, dataManager, type)
+    return buildMergedMapStatsListForMode(validData, dataManager, mode)
   } else {
-    return buildNormalMapStatsList(solData, mpData, dataManager, type)
+    return buildNormalMapStatsListForMode(validData, dataManager, mode)
   }
 }
 
-// 构建非合并模式的地图统计列表
-function buildNormalMapStatsList(
-  solData: MapStatsData[],
-  mpData: MapStatsData[],
+// 构建单一模式的非合并地图统计列表
+function buildNormalMapStatsListForMode(
+  data: MapStatsData[],
   dataManager: DataManager,
-  type: string
+  mode: 'sol' | 'mp'
 ): TemplateMapStat[] {
   const result: TemplateMapStat[] = []
 
-  if (solData.length > 0 && (!type || type === 'sol')) {
-    for (const item of solData) {
-      const mapName = item.mapName || dataManager.getMapName(item.mapId)
-      const d = item.data
-      const totalGames = d.zdj || d.cs || 0
+  for (const item of data) {
+    const mapName = item.mapName || dataManager.getMapName(item.mapId)
+    const d = item.data
+    const mapImage = getMapImageRelativePath(mapName, mode)
 
+    if (mode === 'sol') {
+      const totalGames = d.zdj || d.cs || 0
       result.push({
         mapName,
-        mapImage: dataManager.getMapImagePath(mapName, 'sol'),
+        mapImage,
         sol: {
           profit: formatProfit(d.a1),
           totalGames: formatNumber(totalGames),
@@ -289,17 +339,10 @@ function buildNormalMapStatsList(
           failed: formatNumber(d.nums)
         }
       })
-    }
-  }
-
-  if (mpData.length > 0 && (!type || type === 'mp')) {
-    for (const item of mpData) {
-      const mapName = item.mapName || dataManager.getMapName(item.mapId)
-      const d = item.data
-
+    } else {
       result.push({
         mapName,
-        mapImage: dataManager.getMapImagePath(mapName, 'mp'),
+        mapImage,
         mp: {
           win: formatNumber(d.winnum),
           totalGames: formatNumber(d.zdjnum),
@@ -318,108 +361,129 @@ function buildNormalMapStatsList(
   return result
 }
 
-// 构建合并模式的地图统计列表
-function buildMergedMapStatsList(
-  solData: MapStatsData[],
-  mpData: MapStatsData[],
+// 构建单一模式的合并地图统计列表
+function buildMergedMapStatsListForMode(
+  data: MapStatsData[],
   dataManager: DataManager,
-  type: string
+  mode: 'sol' | 'mp'
 ): TemplateMapStat[] {
-  interface MergedData {
+  interface MergedSolData {
     baseName: string
     mapImage: string | null
-    sol?: { profit: number; totalGames: number; escaped: number; kill: number; failed: number }
-    mp?: { win: number; totalGames: number; score: number; gameTime: number; kill: number; assist: number; death: number }
+    profit: number
+    totalGames: number
+    escaped: number
+    kill: number
+    failed: number
+  }
+  
+  interface MergedMpData {
+    baseName: string
+    mapImage: string | null
+    win: number
+    totalGames: number
+    score: number
+    gameTime: number
+    kill: number
+    assist: number
+    death: number
   }
 
-  const mergedMap = new Map<string, MergedData>()
+  if (mode === 'sol') {
+    const mergedMap = new Map<string, MergedSolData>()
+    
+    for (const item of data) {
+      const mapName = item.mapName || dataManager.getMapName(item.mapId)
+      const baseName = getMapBaseName(mapName)
+      const d = item.data
+      const mapImage = getMapImageRelativePath(mapName, 'sol')
 
-  for (const item of solData) {
-    const mapName = item.mapName || dataManager.getMapName(item.mapId)
-    const baseName = getMapBaseName(mapName)
-    const d = item.data
+      if (!mergedMap.has(baseName)) {
+        mergedMap.set(baseName, {
+          baseName,
+          mapImage,
+          profit: 0,
+          totalGames: 0,
+          escaped: 0,
+          kill: 0,
+          failed: 0
+        })
+      }
 
-    if (!mergedMap.has(baseName)) {
-      mergedMap.set(baseName, { baseName, mapImage: dataManager.getMapImagePath(mapName, 'sol') })
+      const merged = mergedMap.get(baseName)!
+      merged.profit += d.a1 || 0
+      merged.totalGames += d.zdj || d.cs || 0
+      merged.escaped += d.isescapednum || 0
+      merged.kill += d.killnum || 0
+      merged.failed += d.nums || 0
     }
 
-    const merged = mergedMap.get(baseName)!
-    if (!merged.sol) {
-      merged.sol = { profit: 0, totalGames: 0, escaped: 0, kill: 0, failed: 0 }
-    }
+    // 按总对局数排序
+    const sortedMaps = Array.from(mergedMap.values()).sort((a, b) => b.totalGames - a.totalGames)
 
-    merged.sol.profit += d.a1 || 0
-    merged.sol.totalGames += d.zdj || d.cs || 0
-    merged.sol.escaped += d.isescapednum || 0
-    merged.sol.kill += d.killnum || 0
-    merged.sol.failed += d.nums || 0
-  }
-
-  for (const item of mpData) {
-    const mapName = item.mapName || dataManager.getMapName(item.mapId)
-    const baseName = getMapBaseName(mapName)
-    const d = item.data
-
-    if (!mergedMap.has(baseName)) {
-      mergedMap.set(baseName, { baseName, mapImage: dataManager.getMapImagePath(mapName, 'mp') })
-    }
-
-    const merged = mergedMap.get(baseName)!
-    if (!merged.mp) {
-      merged.mp = { win: 0, totalGames: 0, score: 0, gameTime: 0, kill: 0, assist: 0, death: 0 }
-    }
-    // 如果有 mp 数据，优先使用 mp 的地图图片
-    if (!merged.mapImage) {
-      merged.mapImage = dataManager.getMapImagePath(mapName, 'mp')
-    }
-
-    merged.mp.win += d.winnum || 0
-    merged.mp.totalGames += d.zdjnum || 0
-    merged.mp.score += d.score || 0
-    merged.mp.gameTime += d.gametime || 0
-    merged.mp.kill += d.killnum || 0
-    merged.mp.assist += d.assist || 0
-    merged.mp.death += d.death || 0
-  }
-
-  // 排序并转换为模板数据
-  const sortedMaps = Array.from(mergedMap.values()).sort((a, b) => {
-    const aTotal = (a.sol?.totalGames || 0) + (a.mp?.totalGames || 0)
-    const bTotal = (b.sol?.totalGames || 0) + (b.mp?.totalGames || 0)
-    return bTotal - aTotal
-  })
-
-  return sortedMaps.map(map => {
-    const result: TemplateMapStat = {
+    return sortedMaps.map(map => ({
       mapName: map.baseName,
-      mapImage: map.mapImage
-    }
-
-    if (map.sol && (!type || type === 'sol')) {
-      result.sol = {
-        profit: formatProfit(map.sol.profit),
-        totalGames: formatNumber(map.sol.totalGames),
-        escaped: formatNumber(map.sol.escaped),
-        escapeRate: calculateRate(map.sol.escaped, map.sol.totalGames),
-        kill: formatNumber(map.sol.kill),
-        failed: formatNumber(map.sol.failed)
+      mapImage: map.mapImage,
+      sol: {
+        profit: formatProfit(map.profit),
+        totalGames: formatNumber(map.totalGames),
+        escaped: formatNumber(map.escaped),
+        escapeRate: calculateRate(map.escaped, map.totalGames),
+        kill: formatNumber(map.kill),
+        failed: formatNumber(map.failed)
       }
-    }
+    }))
+  } else {
+    const mergedMap = new Map<string, MergedMpData>()
+    
+    for (const item of data) {
+      const mapName = item.mapName || dataManager.getMapName(item.mapId)
+      const baseName = getMapBaseName(mapName)
+      const d = item.data
+      const mapImage = getMapImageRelativePath(mapName, 'mp')
 
-    if (map.mp && (!type || type === 'mp')) {
-      result.mp = {
-        win: formatNumber(map.mp.win),
-        totalGames: formatNumber(map.mp.totalGames),
-        winRate: calculateRate(map.mp.win, map.mp.totalGames),
-        score: formatNumber(map.mp.score),
-        gameTime: formatDuration(map.mp.gameTime),
-        kill: formatNumber(map.mp.kill),
-        assist: formatNumber(map.mp.assist),
-        death: formatNumber(map.mp.death),
-        kda: calculateKDA(map.mp.kill, map.mp.assist, map.mp.death)
+      if (!mergedMap.has(baseName)) {
+        mergedMap.set(baseName, {
+          baseName,
+          mapImage,
+          win: 0,
+          totalGames: 0,
+          score: 0,
+          gameTime: 0,
+          kill: 0,
+          assist: 0,
+          death: 0
+        })
       }
+
+      const merged = mergedMap.get(baseName)!
+      merged.win += d.winnum || 0
+      merged.totalGames += d.zdjnum || 0
+      merged.score += d.score || 0
+      merged.gameTime += d.gametime || 0
+      merged.kill += d.killnum || 0
+      merged.assist += d.assist || 0
+      merged.death += d.death || 0
     }
 
-    return result
-  })
+    // 按总对局数排序
+    const sortedMaps = Array.from(mergedMap.values()).sort((a, b) => b.totalGames - a.totalGames)
+
+    return sortedMaps.map(map => ({
+      mapName: map.baseName,
+      mapImage: map.mapImage,
+      mp: {
+        win: formatNumber(map.win),
+        totalGames: formatNumber(map.totalGames),
+        winRate: calculateRate(map.win, map.totalGames),
+        score: formatNumber(map.score),
+        gameTime: formatDuration(map.gameTime),
+        kill: formatNumber(map.kill),
+        assist: formatNumber(map.assist),
+        death: formatNumber(map.death),
+        kda: calculateKDA(map.kill, map.assist, map.death)
+      }
+    }))
+  }
 }
+

@@ -84,3 +84,63 @@ export function formatNumber(num: number): string {
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
+
+/**
+ * 用户信息接口返回类型
+ */
+export interface UserDisplayInfo {
+  userName: string
+  userAvatar: string
+  qqAvatarUrl: string
+}
+
+/**
+ * 从 personalInfo 接口获取用户显示信息（用户名、头像）
+ * 与云崽版保持一致：使用 userData.picurl 作为头像
+ * @param api ApiService 实例
+ * @param token 用户 token
+ * @param sessionUserId 会话用户 ID（用于构建 QQ 头像 URL）
+ * @param fallbackName 获取失败时的默认用户名
+ */
+export async function getUserDisplayInfo(
+  api: { getPersonalInfo: (token: string) => Promise<{ data?: { userData?: { charac_name?: string; picurl?: string } }; roleInfo?: { charac_name?: string; picurl?: string } }> },
+  token: string,
+  sessionUserId: string,
+  fallbackName: string
+): Promise<UserDisplayInfo> {
+  let userName = fallbackName
+  let userAvatar = ''
+  // QQ头像：与云崽版保持一致，使用 user_id 构建
+  const qqAvatarUrl = `http://q.qlogo.cn/headimg_dl?dst_uin=${sessionUserId}&spec=640&img_type=jpg`
+
+  try {
+    const personalInfoRes = await api.getPersonalInfo(token)
+    if (personalInfoRes?.data && personalInfoRes?.roleInfo) {
+      const { userData } = personalInfoRes.data
+      const { roleInfo } = personalInfoRes
+
+      // 获取用户名
+      const gameUserName = decode(userData?.charac_name || roleInfo?.charac_name || '')
+      if (gameUserName) {
+        userName = gameUserName
+      }
+
+      // 获取头像：与云崽版保持一致，使用 picurl
+      // picurl 可能是 URL 编码的完整地址，或者是纯数字的皮肤 ID
+      const picUrl = decode(userData?.picurl || roleInfo?.picurl || '')
+      if (picUrl) {
+        if (/^[0-9]+$/.test(picUrl)) {
+          // 纯数字：转换为 wegame 皮肤 URL
+          userAvatar = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${picUrl}.webp`
+        } else {
+          // 完整 URL
+          userAvatar = picUrl
+        }
+      }
+    }
+  } catch {
+    // 获取失败，使用默认值
+  }
+
+  return { userName, userAvatar, qqAvatarUrl }
+}

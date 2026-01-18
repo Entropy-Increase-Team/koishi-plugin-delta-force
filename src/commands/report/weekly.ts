@@ -2,18 +2,10 @@ import { Context } from 'koishi'
 import { ApiService } from '../../api'
 import { DataManager } from '../../data'
 import { getActiveToken } from '../../database'
-import { handleApiError } from '../../utils'
+import { handleApiError, getUserDisplayInfo } from '../../utils'
 import { WeeklyReportData } from '../../types'
 import { Renderer } from '../../render'
 
-// URL 解码函数
-function decodeUserInfo(str: string | undefined): string {
-  try {
-    return decodeURIComponent(str || '')
-  } catch {
-    return str || ''
-  }
-}
 
 export function registerWeeklyCommands(
   ctx: Context,
@@ -23,9 +15,10 @@ export function registerWeeklyCommands(
 ) {
   const logger = ctx.logger('delta-force')
 
-  ctx.command('df.weekly [类型:string]', '查看周报')
+  ctx.command('df.weekly [...args:string]', '查看周报')
     .alias('df.周报')
-    .action(async ({ session }, type) => {
+    .usage('用法: df.周报 [模式] [日期]\n模式: 烽火/全面/sol/mp\n日期: 8位数字，如 20260111')
+    .action(async ({ session }, ...args) => {
       const userId = session.userId
       const platform = session.platform
 
@@ -34,20 +27,31 @@ export function registerWeeklyCommands(
         return '您尚未登录，请先使用 df.login 登录'
       }
 
-      // 解析模式参数
+      // 解析参数（与云崽版保持一致）
+      // 注意：从 middleware 执行时，参数可能是单个字符串，需要拆分
       let mode = ''
-      if (type) {
-        if (['烽火', '烽火地带', 'sol', '摸金'].includes(type)) {
+      let date = ''
+      const allArgs: string[] = []
+      for (const arg of args) {
+        // 将每个参数按空格拆分（处理 middleware 传递的情况）
+        const parts = arg.split(/\s+/).filter(Boolean)
+        allArgs.push(...parts)
+      }
+      for (const arg of allArgs) {
+        if (['烽火', '烽火地带', 'sol', '摸金'].includes(arg)) {
           mode = 'sol'
-        } else if (['全面', '全面战场', '战场', 'mp'].includes(type)) {
+        } else if (['全面', '全面战场', '战场', 'mp'].includes(arg)) {
           mode = 'mp'
+        } else if (/^\d{8}$/.test(arg)) {
+          // 8位数字作为日期，如 20260111
+          date = arg
         }
       }
 
       await session.send('正在查询周报数据...')
-
       try {
-        const res = await api.getWeeklyReport(token, mode)
+        const res = await api.getWeeklyReport(token, mode, true, date)
+        logger.debug(`[weekly] API 响应: ${JSON.stringify(res).slice(0, 500)}`)
         
         if (await handleApiError(res, session)) return
 
@@ -73,38 +77,67 @@ export function registerWeeklyCommands(
           return '暂无周报数据，不打两把吗？'
         }
 
-        // 获取用户信息
-        let userName = session.username || session.userId
-        let userAvatar = ''
-        try {
-          const personalInfoRes = await api.getPersonalInfo(token)
-          if (personalInfoRes?.data && personalInfoRes?.roleInfo) {
-            const { userData } = personalInfoRes.data as { userData?: { charac_name?: string; picurl?: string } }
-            const { roleInfo } = personalInfoRes
+        // 获取用户信息（使用统一函数，从 personalInfo 接口获取头像）
+        const { userName, userAvatar, qqAvatarUrl } = await getUserDisplayInfo(
+          api,
+          token,
+          session.userId,
+          session.username || session.userId
+        )
 
-            const gameUserName = decodeUserInfo(userData?.charac_name || roleInfo?.charac_name)
-            if (gameUserName) {
-              userName = gameUserName
-            }
-
-            userAvatar = decodeUserInfo(userData?.picurl || roleInfo?.picurl)
-            if (userAvatar && /^[0-9]+$/.test(userAvatar)) {
-              userAvatar = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${userAvatar}.webp`
-            }
-          }
-        } catch {
-          logger.debug('获取用户信息失败，使用默认值')
+        // 如果没有提供日期，使用当前日期
+        let displayDate = date
+        if (!displayDate) {
+          const now = new Date()
+          const year = now.getFullYear()
+          const month = String(now.getMonth() + 1).padStart(2, '0')
+          const day = String(now.getDate()).padStart(2, '0')
+          displayDate = `${year}${month}${day}`
         }
 
-        // 获取当前日期
-        const now = new Date()
-        const year = now.getFullYear()
-        const month = String(now.getMonth() + 1).padStart(2, '0')
-        const day = String(now.getDate()).padStart(2, '0')
-        const displayDate = `${year}${month}${day}`
+        // 提取所有队友的 OpenID 并获取昵称和头像
+        const allTeammateOpenIDs = new Set<string>()
+        if (solData?.teammates) {
+          solData.teammates.forEach(t => allTeammateOpenIDs.add(t.friend_openid))
+        }
+        if (mpData?.teammates) {
+          mpData.teammates.forEach(t => allTeammateOpenIDs.add(t.friend_openid))
+        }
+
+        const nicknameMap = new Map<string, string>()
+        const avatarMap = new Map<string, string>()
+        if (allTeammateOpenIDs.size > 0) {
+          const promises = Array.from(allTeammateOpenIDs).map(openid => 
+            api.getFriendInfo(token, openid)
+          )
+          const results = await Promise.allSettled(promises)
+          
+          results.forEach((result, index) => {
+            const openid = Array.from(allTeammateOpenIDs)[index]
+            if (result.status === 'fulfilled' && result.value?.success && result.value.data) {
+              const data = result.value.data as { charac_name?: string; picurl?: string }
+              if (data.charac_name) {
+                nicknameMap.set(openid, data.charac_name)
+              }
+              // 处理头像
+              if (data.picurl) {
+                let avatarUrl = data.picurl
+                if (/^[0-9]+$/.test(avatarUrl)) {
+                  avatarUrl = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${avatarUrl}.webp`
+                } else {
+                  try {
+                    avatarUrl = decodeURIComponent(avatarUrl)
+                  } catch {
+                    // 解码失败，使用原始 URL
+                  }
+                }
+                avatarMap.set(openid, avatarUrl)
+              }
+            }
+          })
+        }
 
         // 构建模板数据
-        const qqAvatarUrl = `http://q.qlogo.cn/headimg_dl?dst_uin=${session.userId}&spec=640&img_type=jpg`
         const templateData: Record<string, unknown> = {
           userName: userName,
           userAvatar: userAvatar,
@@ -172,7 +205,7 @@ export function registerWeeklyCommands(
                 operators: parseOperators(solData.total_ArmedForceId_num, dataManager),
                 maps: parseMaps(solData.total_mapid_num, dataManager, 'sol'),
                 highPriceItems: parseHighPriceItems(solData.CarryOut_highprice_list),
-                teammates: []
+                teammates: parseSolTeammates(solData.teammates || [], nicknameMap, avatarMap)
               }
             }
           } else {
@@ -234,7 +267,7 @@ export function registerWeeklyCommands(
                   kills: mpData.DeployArmedForceType_KillNum || 0,
                   gameTime: `${Math.floor((mpData.DeployArmedForceType_gametime || 0) / 3600)}小时${Math.floor(((mpData.DeployArmedForceType_gametime || 0) % 3600) / 60)}分钟`
                 } : null,
-                teammates: []
+                teammates: parseMpTeammates(mpData.teammates || [], nicknameMap, avatarMap)
               }
             }
           } else {
@@ -276,6 +309,23 @@ interface WeeklySolData {
   total_mapid_num?: string
   total_ArmedForceId_num?: string
   CarryOut_highprice_list?: string
+  teammates?: SolTeammate[]
+}
+
+interface SolTeammate {
+  friend_openid: string
+  Friend_total_sol_num?: number
+  Friend_is_Escape1_num?: number
+  Friend_is_Escape2_num?: number
+  Friend_total_sol_KillPlayer?: number
+  Friend_total_sol_DeathCount?: number
+  Friend_Sum_Gained_Price?: number
+  Friend_Sum_Escape1_Gained_Price?: number
+  Friend_Sum_Escape2_Gained_Price?: number
+  Friend_consume_Price?: number
+  Friend_Escape1_consume_Price?: number
+  Friend_Escape2_consume_Price?: number
+  Friend_total_sol_AssistCnt?: number
 }
 
 interface WeeklyMpData {
@@ -296,6 +346,18 @@ interface WeeklyMpData {
   DeployArmedForceType_inum?: number
   DeployArmedForceType_KillNum?: number
   DeployArmedForceType_gametime?: number
+  teammates?: MpTeammate[]
+}
+
+interface MpTeammate {
+  friend_openid: string
+  Friend_mp_total_num?: number
+  Friend_mp_win_num?: number
+  Friend_mp_KillNum?: number
+  Friend_mp_Death?: number
+  Friend_mp_Assist?: number
+  Friend_Sum_Score?: number
+  Friend_Max_Score?: number
 }
 
 interface ParsedItem {
@@ -515,4 +577,97 @@ function parseAndGetName(
   } catch {
     return '无'
   }
+}
+
+// 解析烽火地带队友数据（与云崽版保持一致）
+function parseSolTeammates(
+  teammates: SolTeammate[],
+  nicknameMap: Map<string, string>,
+  avatarMap: Map<string, string>
+): Array<{
+  name: string
+  avatar: string
+  total_sol_num: number
+  escape1: number
+  escape2: number
+  killPlayer: number
+  death: number
+  totalGained: string
+  successGain: string
+  failGain: string
+  totalCost: string
+  successCost: string
+  failCost: string
+  assistCnt: number
+}> {
+  // 过滤有效队友（有对局数的）
+  const activeTeammates = teammates.filter(t => (t.Friend_total_sol_num || 0) > 0)
+  
+  return activeTeammates.map(t => {
+    const teammateName = nicknameMap.get(t.friend_openid) || `...${t.friend_openid.slice(-6)}`
+    const teammateAvatar = avatarMap.get(t.friend_openid) || ''
+    const sumGained = t.Friend_Sum_Gained_Price
+    const totalGained = Number(sumGained) ||
+      (Number(t.Friend_Sum_Escape1_Gained_Price || 0) +
+        Number(t.Friend_Sum_Escape2_Gained_Price || 0))
+    
+    return {
+      name: teammateName,
+      avatar: teammateAvatar,
+      total_sol_num: t.Friend_total_sol_num || 0,
+      escape1: t.Friend_is_Escape1_num || 0,
+      escape2: t.Friend_is_Escape2_num || 0,
+      killPlayer: t.Friend_total_sol_KillPlayer || 0,
+      death: t.Friend_total_sol_DeathCount || 0,
+      totalGained: totalGained.toLocaleString(),
+      successGain: Number(t.Friend_Sum_Escape1_Gained_Price || 0).toLocaleString(),
+      failGain: Number(t.Friend_Sum_Escape2_Gained_Price || 0).toLocaleString(),
+      totalCost: Number(t.Friend_consume_Price || 0).toLocaleString(),
+      successCost: Number(t.Friend_Escape1_consume_Price || 0).toLocaleString(),
+      failCost: Number(t.Friend_Escape2_consume_Price || 0).toLocaleString(),
+      assistCnt: t.Friend_total_sol_AssistCnt || 0
+    }
+  })
+}
+
+// 解析全面战场队友数据（与云崽版保持一致）
+function parseMpTeammates(
+  teammates: MpTeammate[],
+  nicknameMap: Map<string, string>,
+  avatarMap: Map<string, string>
+): Array<{
+  name: string
+  avatar: string
+  total_num: number
+  win_num: number
+  winRate: string
+  kda: string
+  sumScore: string
+  maxScore: string
+}> {
+  // 过滤有效队友
+  const activeTeammates = teammates.filter(t => 
+    (t.Friend_mp_total_num || 0) > 0 || 
+    (t.Friend_mp_win_num || 0) > 0 || 
+    (t.Friend_mp_KillNum || 0) > 0
+  )
+  
+  return activeTeammates.map(t => {
+    const teammateName = nicknameMap.get(t.friend_openid) || `...${t.friend_openid.slice(-6)}`
+    const teammateAvatar = avatarMap.get(t.friend_openid) || ''
+    const totalGames = t.Friend_mp_total_num || 0
+    const winGames = t.Friend_mp_win_num || 0
+    const winRate = totalGames > 0 ? `${((winGames / totalGames) * 100).toFixed(1)}%` : '0%'
+    
+    return {
+      name: teammateName,
+      avatar: teammateAvatar,
+      total_num: totalGames,
+      win_num: winGames,
+      winRate: winRate,
+      kda: `${t.Friend_mp_KillNum || 0}/${t.Friend_mp_Death || 0}/${t.Friend_mp_Assist || 0}`,
+      sumScore: (t.Friend_Sum_Score || 0).toLocaleString(),
+      maxScore: (t.Friend_Max_Score || 0).toLocaleString()
+    }
+  })
 }

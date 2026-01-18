@@ -46,12 +46,18 @@ export function registerRecordCommands(
       const userId = session.userId
       const platform = session.platform
 
-      // 解析参数
+      // 解析参数（处理 middleware 传递的单个字符串参数）
       let mode: 'sol' | 'mp' = 'sol' // 默认模式为烽火地带
       let page = 1      // 默认页数为1
       let modeName = '烽火地带'
 
+      const allArgs: string[] = []
       for (const arg of args) {
+        const parts = arg.split(/\s+/).filter(Boolean)
+        allArgs.push(...parts)
+      }
+
+      for (const arg of allArgs) {
         if (['全面', '全面战场', '战场', 'mp'].includes(arg)) {
           mode = 'mp'
           modeName = '全面战场'
@@ -101,8 +107,8 @@ export function registerRecordCommands(
             time: r.dtEventTime,
             map: mapName,
             operator,
-            mapBg: mapBgPath,
-            operatorImg: operatorImgPath
+            mapBg: dataManager.getFullFileUrl(mapBgPath),
+            operatorImg: dataManager.getFullFileUrl(operatorImgPath)
           }
 
           if (mode === 'sol') {

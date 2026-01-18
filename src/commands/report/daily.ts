@@ -2,18 +2,10 @@ import { Context } from 'koishi'
 import { ApiService } from '../../api'
 import { DataManager } from '../../data'
 import { getActiveToken } from '../../database'
-import { handleApiError } from '../../utils'
+import { handleApiError, getUserDisplayInfo } from '../../utils'
 import { DailyReportData } from '../../types'
 import { Renderer } from '../../render'
 
-// URL 解码函数
-function decodeUserInfo(str: string | undefined): string {
-  try {
-    return decodeURIComponent(str || '')
-  } catch {
-    return str || ''
-  }
-}
 
 export function registerDailyCommands(
   ctx: Context,
@@ -79,31 +71,15 @@ export function registerDailyCommands(
           return '暂无日报数据，不打两把吗？'
         }
 
-        // 获取用户信息
-        let userName = session.username || session.userId
-        let userAvatar = ''
-        try {
-          const personalInfoRes = await api.getPersonalInfo(token)
-          if (personalInfoRes?.data && personalInfoRes?.roleInfo) {
-            const { userData } = personalInfoRes.data as { userData?: { charac_name?: string; picurl?: string } }
-            const { roleInfo } = personalInfoRes
-
-            const gameUserName = decodeUserInfo(userData?.charac_name || roleInfo?.charac_name)
-            if (gameUserName) {
-              userName = gameUserName
-            }
-
-            userAvatar = decodeUserInfo(userData?.picurl || roleInfo?.picurl)
-            if (userAvatar && /^[0-9]+$/.test(userAvatar)) {
-              userAvatar = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${userAvatar}.webp`
-            }
-          }
-        } catch {
-          logger.debug('获取用户信息失败，使用默认值')
-        }
+        // 获取用户信息（使用统一函数，从 personalInfo 接口获取头像）
+        const { userName, userAvatar, qqAvatarUrl } = await getUserDisplayInfo(
+          api,
+          token,
+          session.userId,
+          session.username || session.userId
+        )
 
         // 构建模板数据
-        const qqAvatarUrl = `http://q.qlogo.cn/headimg_dl?dst_uin=${session.userId}&spec=640&img_type=jpg`
         const templateData: Record<string, unknown> = {
           type: 'daily',
           mode: mode,
