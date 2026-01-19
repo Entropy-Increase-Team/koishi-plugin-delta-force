@@ -147,6 +147,11 @@ export function registerAccountCommands(
     .alias('df.切换账号')
     .alias('df.账号切换')
     .action(async ({ session }, index) => {
+      // 参数验证：必须提供序号
+      if (index === undefined || index === null || isNaN(index)) {
+        return '请提供要切换的账号序号\n用法: ^切换 <序号>\n例如: ^切换 1\n\n使用 ^账号 查看账号列表及序号'
+      }
+
       const userId = session.userId
       const platform = session.platform
       const isPrivate = isPrivateSession(session)
@@ -166,7 +171,7 @@ export function registerAccountCommands(
         const allInOrder = buildOrderedAccountList(grouped)
 
         if (index < 1 || index > allInOrder.length) {
-          return '序号无效，请使用 df.account 查看账号列表'
+          return `序号无效，有效范围: 1-${allInOrder.length}\n请使用 ^账号 查看账号列表`
         }
 
         const targetToken = allInOrder[index - 1]
@@ -202,6 +207,11 @@ export function registerAccountCommands(
     .alias('df.解绑')
     .alias('df.删除')
     .action(async ({ session }, index) => {
+      // 参数验证：必须提供序号
+      if (index === undefined || index === null || isNaN(index)) {
+        return '请提供要解绑的账号序号\n用法: ^解绑 <序号>\n例如: ^解绑 1\n\n使用 ^账号 查看账号列表及序号'
+      }
+
       const userId = session.userId
       const platform = session.platform
 
@@ -220,7 +230,7 @@ export function registerAccountCommands(
         const allInOrder = buildOrderedAccountList(grouped)
 
         if (index < 1 || index > allInOrder.length) {
-          return '序号无效，请使用 df.account 查看账号列表'
+          return `序号无效，有效范围: 1-${allInOrder.length}\n请使用 ^账号 查看账号列表`
         }
 
         const targetToken = allInOrder[index - 1]
@@ -349,6 +359,11 @@ export function registerAccountCommands(
   ctx.command('df.delete <序号:number>', '删除账号登录数据')
     .alias('df.删除账号')
     .action(async ({ session }, index) => {
+      // 参数验证：必须提供序号
+      if (index === undefined || index === null || isNaN(index)) {
+        return '请提供要删除的账号序号\n用法: ^删除账号 <序号>\n例如: ^删除账号 1\n\n使用 ^账号 查看账号列表及序号\n注意: 此操作仅支持删除QQ/微信登录数据'
+      }
+
       const userId = session.userId
       const platform = session.platform
 
@@ -367,7 +382,7 @@ export function registerAccountCommands(
         const allInOrder = buildOrderedAccountList(grouped)
 
         if (index < 1 || index > allInOrder.length) {
-          return '序号无效，请使用 df.account 查看账号列表'
+          return `序号无效，有效范围: 1-${allInOrder.length}\n请使用 ^账号 查看账号列表`
         }
 
         const targetAccount = allInOrder[index - 1]
