@@ -253,6 +253,29 @@ const commandRules: CommandRule[] = [
     command: 'df.help'
   },
 
+  // ==================== 资源管理 ====================
+  // 资源状态: ^\^资源状态$
+  {
+    pattern: /^\^资源状态$/i,
+    command: 'df.resources.status'
+  },
+  // 资源下载/更新: ^\^(资源下载|下载资源|资源更新|更新资源)\s*(github|gitee)?$
+  {
+    pattern: /^\^(资源下载|下载资源|资源更新|更新资源)\s*(github|gitee)?$/i,
+    command: 'df.resources.download',
+    args: (match) => match[2]?.toLowerCase() || ''
+  },
+  // 资源清理: ^\^(资源清理|清理资源)$
+  {
+    pattern: /^\^(资源清理|清理资源)$/i,
+    command: 'df.resources.clean'
+  },
+  // 资源检查: ^\^(资源检查|检查资源)$
+  {
+    pattern: /^\^(资源检查|检查资源)$/i,
+    command: 'df.resources.check'
+  },
+
   // ==================== 改枪方案 ====================
   // 上传改枪码: ^\^上传(改枪方案|改枪码)\s*(.*)$
   {

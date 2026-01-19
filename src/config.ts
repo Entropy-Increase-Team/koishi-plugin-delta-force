@@ -4,6 +4,7 @@ export interface Config {
   apiKey: string
   clientID: string
   apiBaseUrl: string
+  resourceSource: 'github' | 'gitee'
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -24,4 +25,11 @@ export const Config: Schema<Config> = Schema.object({
   ])
     .default('https://df-api.shallow.ink')
     .description('API 基础地址'),
+
+  resourceSource: Schema.union([
+    Schema.const('github').description('GitHub（优先更新）'),
+    Schema.const('gitee').description('Gitee（国内用户推荐）'),
+  ])
+    .default('github')
+    .description('静态资源下载源'),
 })

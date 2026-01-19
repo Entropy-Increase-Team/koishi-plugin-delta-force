@@ -5,6 +5,7 @@ import { DataManager } from './data'
 import { extendDatabase } from './database'
 import { registerMiddleware } from './middleware'
 import { Renderer, createRenderer } from './render'
+import { ResourceManager, createResourceManager } from './resources'
 
 // Account commands
 import { registerLoginCommands, registerAccountCommands } from './commands/account'
@@ -33,6 +34,7 @@ import {
   registerPasswordCommands,
   registerSolutionCommands,
   registerRoomCommands,
+  registerResourcesCommands,
 } from './commands/tools'
 
 // Entertainment commands
@@ -66,11 +68,21 @@ export function apply(ctx: Context, config: Config) {
   // 初始化渲染器
   const renderer = createRenderer(ctx)
 
-  // 异步初始化数据
-  Promise.all([
+  // 初始化资源管理器
+  const resourceManager = createResourceManager(ctx, config)
+
+  // 异步初始化数据和资源
+  Promise.allSettled([
     dataManager.init(),
-  ]).catch(err => {
-    logger.warn('数据管理器初始化失败:', err)
+    resourceManager.syncResources(),
+  ]).then(results => {
+    const [dataResult, resourceResult] = results
+    if (dataResult.status === 'rejected') {
+      logger.warn('数据管理器初始化失败:', dataResult.reason)
+    }
+    if (resourceResult.status === 'rejected') {
+      logger.warn('资源同步失败:', resourceResult.reason)
+    }
   })
 
   // 主指令
@@ -138,7 +150,12 @@ export function apply(ctx: Context, config: Config) {
 • ^语音列表 - 角色列表
 • ^标签列表 - 特殊标签
 • ^tts <角色> [情感] <文本> - TTS合成
-• ^tts角色列表 - TTS角色`
+• ^tts角色列表 - TTS角色
+
+【资源管理】
+• ^资源状态 - 查看资源状态
+• ^资源下载 / ^资源更新 [github/gitee] - 下载/更新资源
+• ^资源清理 - 清理资源目录`
     })
 
   // 注册各功能模块
@@ -170,6 +187,9 @@ export function apply(ctx: Context, config: Config) {
   // 新增 entertainment 模块命令
   registerVoiceCommands(ctx, api, dataManager)
   registerTtsCommands(ctx, api)
+
+  // 资源管理命令
+  registerResourcesCommands(ctx, config, resourceManager)
 
   logger.info('三角洲行动插件加载完成')
 }

@@ -55,8 +55,20 @@ export class Renderer {
   private templatesPath: string
 
   constructor(private ctx: Context) {
-    // 资源路径 (相对于插件根目录)
-    this.resourcesPath = path.resolve(__dirname, '../resources')
+    // 优先使用 ctx.baseDir/data/delta-force/resources（下载的资源）
+    const downloadedResourcesPath = path.join(ctx.baseDir, 'data', 'delta-force', 'resources')
+    // 备用路径：插件目录下的 resources（开发时使用）
+    const localResourcesPath = path.resolve(__dirname, '../resources')
+
+    // 检查下载的资源是否存在
+    if (fs.existsSync(path.join(downloadedResourcesPath, 'Template'))) {
+      this.resourcesPath = downloadedResourcesPath
+      this.ctx.logger('delta-force').info('使用下载的资源路径:', downloadedResourcesPath)
+    } else {
+      this.resourcesPath = localResourcesPath
+      this.ctx.logger('delta-force').info('使用本地资源路径:', localResourcesPath)
+    }
+
     this.templatesPath = path.resolve(this.resourcesPath, 'Template')
 
     // 配置 art-template

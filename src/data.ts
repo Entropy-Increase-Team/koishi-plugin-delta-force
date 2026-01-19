@@ -60,8 +60,18 @@ export class DataManager {
     private api: ApiService
   ) {
     this.cacheManager = new StaticCacheManager(ctx)
-    // 资源路径 (相对于插件根目录)
-    this.resourcesPath = resolve(__dirname, '../resources')
+    
+    // 优先使用 ctx.baseDir/data/delta-force/resources（云端下载的资源）
+    const cloudResourcesPath = join(ctx.baseDir, 'data', 'delta-force', 'resources')
+    // 备用路径：插件目录下的 resources（开发时使用）
+    const localResourcesPath = resolve(__dirname, '../resources')
+
+    // 检查云端资源是否存在
+    if (existsSync(join(cloudResourcesPath, 'data'))) {
+      this.resourcesPath = cloudResourcesPath
+    } else {
+      this.resourcesPath = localResourcesPath
+    }
   }
 
   /**
