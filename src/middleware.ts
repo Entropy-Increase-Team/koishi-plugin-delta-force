@@ -259,11 +259,10 @@ const commandRules: CommandRule[] = [
     pattern: /^\^资源状态$/i,
     command: 'df.resources.status'
   },
-  // 资源下载/更新: ^\^(资源下载|下载资源|资源更新|更新资源)\s*(github|gitee)?$
+  // 资源下载/更新: ^\^(资源下载|下载资源|资源更新|更新资源)$
   {
-    pattern: /^\^(资源下载|下载资源|资源更新|更新资源)\s*(github|gitee)?$/i,
-    command: 'df.resources.download',
-    args: (match) => match[2]?.toLowerCase() || ''
+    pattern: /^\^(资源下载|下载资源|资源更新|更新资源)$/i,
+    command: 'df.resources.download'
   },
   // 资源清理: ^\^(资源清理|清理资源)$
   {

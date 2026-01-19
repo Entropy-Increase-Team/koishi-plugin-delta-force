@@ -71,19 +71,16 @@ export function apply(ctx: Context, config: Config) {
   // 初始化资源管理器
   const resourceManager = createResourceManager(ctx, config)
 
-  // 异步初始化数据和资源
-  Promise.allSettled([
-    dataManager.init(),
-    resourceManager.syncResources(),
-  ]).then(results => {
-    const [dataResult, resourceResult] = results
-    if (dataResult.status === 'rejected') {
-      logger.warn('数据管理器初始化失败:', dataResult.reason)
-    }
-    if (resourceResult.status === 'rejected') {
-      logger.warn('资源同步失败:', resourceResult.reason)
-    }
+  // 异步初始化数据
+  dataManager.init().catch(error => {
+    logger.warn('数据管理器初始化失败:', error)
   })
+
+  // 检查资源是否已下载
+  if (!resourceManager.isResourcesReady()) {
+    logger.warn('静态资源未下载，请使用 df.resources.download 命令下载资源')
+    logger.warn('国内用户推荐开启 useGhProxy 配置项以加速下载')
+  }
 
   // 主指令
   ctx.command('df', '三角洲行动')

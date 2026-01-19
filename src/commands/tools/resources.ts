@@ -1,6 +1,6 @@
 import { Context } from 'koishi'
 import { Config } from '../../config'
-import { ResourceManager, ResourceSource } from '../../resources'
+import { ResourceManager } from '../../resources'
 
 export function registerResourcesCommands(
   ctx: Context,
@@ -23,43 +23,44 @@ export function registerResourcesCommands(
         `状态: ${status.ready ? '✅ 已就绪' : '❌ 未下载'}`,
         `路径: ${status.path}`,
         `文件数: ${status.fileCount}`,
-        `默认源: ${config.resourceSource}`,
+        `GH-Proxy 加速: ${status.useGhProxy ? '✅ 已开启' : '❌ 未开启'}`,
       ]
 
       if (status.lastUpdate) {
         lines.push(`最后更新: ${new Date(status.lastUpdate).toLocaleString('zh-CN')}`)
       }
-      if (status.source) {
-        lines.push(`下载源: ${status.source}`)
-      }
 
       return lines.join('\n')
     })
 
-  ctx.command('df.resources.download [source:string]', '下载/更新资源', { authority: 4 })
+  ctx.command('df.resources.download', '下载/更新资源', { authority: 4 })
     .alias('df.资源下载')
     .alias('df.下载资源')
     .alias('df.资源更新')
     .alias('df.更新资源')
     .option('force', '-f 强制重新下载所有文件')
-    .action(async ({ session, options }, source) => {
-      const validSources: ResourceSource[] = ['github', 'gitee']
-      // 优先使用命令参数，否则使用配置中的默认源
-      const selectedSource: ResourceSource = validSources.includes(source as ResourceSource) 
-        ? source as ResourceSource 
-        : config.resourceSource
+    .action(async ({ session, options }) => {
+      // 检查是否正在下载
+      const status = resourceManager.getDownloadStatus()
+      if (status.isDownloading && status.progress) {
+        const percent = Math.round((status.progress.downloaded / status.progress.total) * 100)
+        return `⏳ 资源正在下载中...\n` +
+          `进度: ${status.progress.downloaded}/${status.progress.total} (${percent}%)\n` +
+          `当前: ${status.progress.current || '准备中'}`
+      }
 
-      await session.send(`🔄 开始从 ${selectedSource} 下载资源，请稍候...`)
+      const useProxy = config.useGhProxy
+      await session.send(`🔄 开始下载资源${useProxy ? ' (使用 GH-Proxy 加速)' : ''}，请稍候...`)
 
       if (options?.force) {
         await resourceManager.cleanResources()
       }
 
       try {
-        const result = await resourceManager.downloadResources(selectedSource)
+        const result = await resourceManager.downloadResources()
 
         if (result.success) {
-          return `✅ 资源下载完成！\n共下载 ${result.downloaded} 个文件`
+          return `✅ 资源下载完成！\n本次共下载 ${result.downloaded} 个文件`
         } else {
           return `⚠️ 资源下载完成，但有 ${result.failed.length} 个文件失败\n` +
             `成功: ${result.downloaded} 个\n` +
@@ -69,7 +70,7 @@ export function registerResourcesCommands(
       } catch (error) {
         logger.error('资源下载失败:', error)
         return `❌ 资源下载失败: ${(error as Error).message}\n` +
-          `请尝试切换源: df.resources.download github 或 df.resources.download gitee`
+          `请检查网络连接或尝试开启 GH-Proxy 加速`
       }
     })
 

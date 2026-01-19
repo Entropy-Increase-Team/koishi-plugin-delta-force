@@ -9,8 +9,8 @@ export interface ResourceItem {
   sha: string
   size: number
   type: 'file' | 'dir'
-  download_url: string | null
-  url: string
+  download_url: string
+  html_url?: string
 }
 
 export interface DownloadProgress {
@@ -20,48 +20,65 @@ export interface DownloadProgress {
   failed: string[]
 }
 
-export type ResourceSource = 'github' | 'gitee'
+// 后端 API 响应结构
+interface ResourceTreeNode {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size?: number
+  sha?: string
+  download_url?: string
+  html_url?: string
+  children?: ResourceTreeNode[]
+}
 
-export interface ResourceConfig {
-  github: {
-    owner: string
-    repo: string
-    branch: string
-    basePath: string
-  }
-  gitee: {
-    owner: string
-    repo: string
-    branch: string
-    basePath: string
+interface ResourceTreeResponse {
+  code: string
+  data: {
+    repoKey: string
+    syncedAt: string
+    totalFiles: number
+    totalDirs: number
+    totalSize: number
+    tree: ResourceTreeNode
   }
 }
 
-const DEFAULT_RESOURCE_CONFIG: ResourceConfig = {
-  github: {
-    owner: 'Entropy-Increase-Team',
-    repo: 'koishi-plugin-delta-force',
-    branch: 'main',
-    basePath: 'resources'
-  },
-  gitee: {
-    owner: 'Dnyo666',
-    repo: 'koishi-plugin-delta-force',
-    branch: 'main',
-    basePath: 'resources'
-  }
+// Manifest 文件结构（支持断点续传）
+interface ManifestFile {
+  relativePath: string
+  sha: string
+  size: number
+  downloaded: boolean  // 是否已下载完成
 }
+
+interface Manifest {
+  version: string
+  files: ManifestFile[]
+}
+
+const GH_PROXY_PREFIX = 'https://edgeone.gh-proxy.org/'
 
 export class ResourceManager {
   private resourcesPath: string
-  private config: ResourceConfig
   private logger: ReturnType<Context['logger']>
+  private isDownloading = false
+  private currentProgress: DownloadProgress | null = null
 
   constructor(private ctx: Context, private pluginConfig: Config) {
     this.logger = ctx.logger('delta-force-resources')
-    this.config = DEFAULT_RESOURCE_CONFIG
     // 使用 ctx.baseDir/data/delta-force/resources 作为资源目录
     this.resourcesPath = path.join(ctx.baseDir, 'data', 'delta-force', 'resources')
+  }
+
+  /**
+   * 获取当前下载状态
+   */
+  getDownloadStatus(): { isDownloading: boolean; progress: DownloadProgress | null } {
+    return {
+      isDownloading: this.isDownloading,
+      progress: this.currentProgress
+    }
   }
 
   /**
@@ -69,6 +86,13 @@ export class ResourceManager {
    */
   getResourcesPath(): string {
     return this.resourcesPath
+  }
+
+  /**
+   * 延迟函数
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 
   /**
@@ -80,68 +104,71 @@ export class ResourceManager {
   }
 
   /**
-   * 获取 API URL
+   * 获取后端 API 基础地址
    */
-  private getApiUrl(source: ResourceSource, subPath: string = ''): string {
-    const cfg = this.config[source]
-    const fullPath = subPath ? `${cfg.basePath}/${subPath}` : cfg.basePath
-    
-    if (source === 'github') {
-      return `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${fullPath}?ref=${cfg.branch}`
-    } else {
-      return `https://gitee.com/api/v5/repos/${cfg.owner}/${cfg.repo}/contents/${fullPath}`
-    }
+  private getApiBaseUrl(): string {
+    return this.pluginConfig.apiBaseUrl || 'https://df-api.shallow.ink'
   }
 
   /**
-   * 获取下载 URL
+   * 应用 gh-proxy 加速到下载 URL
    */
-  private getDownloadUrl(source: ResourceSource, filePath: string): string {
-    const cfg = this.config[source]
-    
-    if (source === 'github') {
-      return `https://raw.githubusercontent.com/${cfg.owner}/${cfg.repo}/${cfg.branch}/${filePath}`
-    } else {
-      return `https://gitee.com/${cfg.owner}/${cfg.repo}/raw/${cfg.branch}/${filePath}`
+  private applyGhProxy(url: string): string {
+    if (!this.pluginConfig.useGhProxy) return url
+    // 只对 raw.githubusercontent.com 的 URL 应用代理
+    if (url.includes('raw.githubusercontent.com')) {
+      return `${GH_PROXY_PREFIX}${url}`
     }
+    return url
   }
 
   /**
-   * 递归获取目录下所有文件列表
+   * 从后端 API 获取文件列表
    */
-  private async fetchFileList(
-    source: ResourceSource,
-    subPath: string = '',
-    fileList: ResourceItem[] = []
-  ): Promise<ResourceItem[]> {
-    const url = this.getApiUrl(source, subPath)
+  private async fetchFileList(): Promise<ResourceItem[]> {
+    const apiUrl = `${this.getApiBaseUrl()}/koishi/resources/tree`
     
     try {
-      const response = await this.ctx.http.get<ResourceItem[]>(url, {
-        headers: source === 'github' ? {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'koishi-plugin-delta-force'
-        } : {}
+      const response = await this.ctx.http.get<ResourceTreeResponse>(apiUrl, {
+        headers: {
+          'User-Agent': 'koishi-plugin-delta-force',
+          'Authorization': `Bearer ${this.pluginConfig.apiKey}`
+        }
       })
 
-      for (const item of response) {
-        if (item.type === 'dir') {
-          // 递归获取子目录
-          const relativePath = item.path.replace(`${this.config[source].basePath}/`, '')
-          await this.fetchFileList(source, relativePath, fileList)
-        } else if (item.type === 'file') {
-          // 添加文件到列表
-          fileList.push({
-            ...item,
-            download_url: item.download_url || this.getDownloadUrl(source, item.path)
-          })
-        }
+      if (response.code !== 'SUCCESS') {
+        throw new Error(`API 返回错误: ${response.code}`)
       }
 
+      // 递归提取所有文件
+      const fileList: ResourceItem[] = []
+      this.extractFiles(response.data.tree, fileList)
+      
       return fileList
     } catch (error) {
-      this.logger.error(`获取文件列表失败 (${source}): ${url}`, error)
+      this.logger.error(`获取文件列表失败: ${apiUrl}`, error)
       throw error
+    }
+  }
+
+  /**
+   * 递归提取树形结构中的所有文件
+   */
+  private extractFiles(node: ResourceTreeNode, fileList: ResourceItem[]): void {
+    if (node.type === 'file' && node.download_url) {
+      fileList.push({
+        name: node.name,
+        path: node.path,
+        sha: node.sha || '',
+        size: node.size || 0,
+        type: 'file',
+        download_url: node.download_url,
+        html_url: node.html_url
+      })
+    } else if (node.type === 'dir' && node.children) {
+      for (const child of node.children) {
+        this.extractFiles(child, fileList)
+      }
     }
   }
 
@@ -165,13 +192,28 @@ export class ResourceManager {
   }
 
   /**
-   * 下载所有资源
+   * 下载所有资源（支持断点续传）
    */
   async downloadResources(
-    source: ResourceSource = 'gitee',
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<{ success: boolean; downloaded: number; failed: string[] }> {
-    this.logger.info(`开始从 ${source} 下载资源...`)
+    // 检查是否正在下载
+    if (this.isDownloading) {
+      const status = this.getDownloadStatus()
+      if (status.progress) {
+        const percent = Math.round((status.progress.downloaded / status.progress.total) * 100)
+        this.logger.warn(`资源正在下载中: ${status.progress.downloaded}/${status.progress.total} (${percent}%)`)
+      }
+      return {
+        success: false,
+        downloaded: 0,
+        failed: ['下载正在进行中']
+      }
+    }
+
+    this.isDownloading = true
+    const useProxy = this.pluginConfig.useGhProxy
+    this.logger.info(`开始下载资源${useProxy ? ' (使用 GH-Proxy 加速)' : ''}...`)
 
     const progress: DownloadProgress = {
       total: 0,
@@ -179,10 +221,11 @@ export class ResourceManager {
       current: '',
       failed: []
     }
+    this.currentProgress = progress
 
     try {
-      // 获取文件列表
-      const fileList = await this.fetchFileList(source)
+      // 从后端 API 获取文件列表
+      const fileList = await this.fetchFileList()
       progress.total = fileList.length
       this.logger.info(`共发现 ${fileList.length} 个文件`)
 
@@ -191,24 +234,75 @@ export class ResourceManager {
         fs.mkdirSync(this.resourcesPath, { recursive: true })
       }
 
-      // 下载每个文件
-      for (const file of fileList) {
-        const relativePath = file.path.replace(`${this.config[source].basePath}/`, '')
+      // 加载现有 manifest 或创建新的
+      let manifest = await this.loadManifest()
+      const existingManifest = manifest
+      
+      // 创建新的 manifest（包含所有文件，初始 downloaded = false）
+      manifest = {
+        version: new Date().toISOString(),
+        files: fileList.map(f => {
+          const relativePath = f.path.replace(/^resources\//, '')
+          // 检查旧 manifest 中是否已下载且 SHA 相同
+          const existingFile = existingManifest?.files.find(
+            ef => ef.relativePath === relativePath && ef.sha === f.sha && ef.downloaded
+          )
+          return {
+            relativePath,
+            sha: f.sha,
+            size: f.size,
+            downloaded: !!existingFile  // 如果旧文件已下载且 SHA 相同，标记为已下载
+          }
+        })
+      }
+      
+      // 立即保存 manifest（支持断点续传）
+      await this.writeManifest(manifest)
+      this.logger.info('已保存资源清单，支持断点续传')
+
+      const downloadDelay = 100
+      const progressInterval = 20
+      let skippedCount = 0
+      let actualDownloaded = 0
+      
+      for (let i = 0; i < manifest.files.length; i++) {
+        const fileInfo = manifest.files[i]
+        const relativePath = fileInfo.relativePath
         const localPath = path.join(this.resourcesPath, relativePath)
         progress.current = relativePath
 
-        try {
-          // 检查文件是否已存在且 SHA 相同（增量更新）
-          if (await this.shouldSkipFile(localPath, file.sha)) {
-            this.logger.debug(`跳过未变更文件: ${relativePath}`)
-            progress.downloaded++
-            onProgress?.(progress)
-            continue
-          }
-
-          await this.downloadFile(file.download_url!, localPath)
+        // 如果已下载且文件存在，跳过
+        if (fileInfo.downloaded && fs.existsSync(localPath)) {
+          skippedCount++
           progress.downloaded++
-          this.logger.debug(`下载成功: ${relativePath}`)
+          onProgress?.(progress)
+          continue
+        }
+
+        // 获取对应的原始文件信息
+        const file = fileList.find(f => f.path.replace(/^resources\//, '') === relativePath)
+        if (!file) {
+          progress.failed.push(relativePath)
+          continue
+        }
+
+        try {
+          const downloadUrl = this.applyGhProxy(file.download_url)
+          await this.downloadFile(downloadUrl, localPath)
+          
+          // 更新 manifest 中该文件的下载状态
+          manifest.files[i].downloaded = true
+          await this.writeManifest(manifest)
+          
+          progress.downloaded++
+          actualDownloaded++
+          
+          if (progress.downloaded % progressInterval === 0) {
+            const percent = Math.round((progress.downloaded / progress.total) * 100)
+            this.logger.info(`下载进度: ${progress.downloaded}/${progress.total} (${percent}%)`)
+          }
+          
+          await this.sleep(downloadDelay)
         } catch (error) {
           progress.failed.push(relativePath)
           this.logger.warn(`下载失败: ${relativePath}`, error)
@@ -216,53 +310,33 @@ export class ResourceManager {
 
         onProgress?.(progress)
       }
+      
+      if (skippedCount > 0) {
+        this.logger.info(`跳过 ${skippedCount} 个已下载文件`)
+      }
 
-      // 保存 manifest
-      await this.saveManifest(source, fileList)
+      this.logger.info(`资源下载完成: 新下载 ${actualDownloaded} 个, 跳过 ${skippedCount} 个, 失败 ${progress.failed.length} 个`)
 
-      this.logger.info(`资源下载完成: ${progress.downloaded}/${progress.total}, 失败: ${progress.failed.length}`)
+      this.isDownloading = false
+      this.currentProgress = null
 
       return {
         success: progress.failed.length === 0,
-        downloaded: progress.downloaded,
+        downloaded: actualDownloaded,
         failed: progress.failed
       }
     } catch (error) {
+      this.isDownloading = false
+      this.currentProgress = null
       this.logger.error('资源下载失败:', error)
       throw error
     }
   }
 
   /**
-   * 检查文件是否需要跳过（基于 SHA 比较）
+   * 写入 manifest 文件
    */
-  private async shouldSkipFile(localPath: string, remoteSha: string): Promise<boolean> {
-    if (!fs.existsSync(localPath)) return false
-
-    const manifest = await this.loadManifest()
-    if (!manifest) return false
-
-    const fileInfo = manifest.files.find(f => 
-      path.join(this.resourcesPath, f.relativePath) === localPath
-    )
-
-    return fileInfo?.sha === remoteSha
-  }
-
-  /**
-   * 保存资源清单
-   */
-  private async saveManifest(source: ResourceSource, fileList: ResourceItem[]): Promise<void> {
-    const manifest = {
-      version: new Date().toISOString(),
-      source,
-      files: fileList.map(f => ({
-        relativePath: f.path.replace(`${this.config[source].basePath}/`, ''),
-        sha: f.sha,
-        size: f.size
-      }))
-    }
-
+  private async writeManifest(manifest: Manifest): Promise<void> {
     const manifestPath = path.join(this.resourcesPath, 'manifest.json')
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
   }
@@ -270,17 +344,19 @@ export class ResourceManager {
   /**
    * 加载资源清单
    */
-  private async loadManifest(): Promise<{
-    version: string
-    source: ResourceSource
-    files: { relativePath: string; sha: string; size: number }[]
-  } | null> {
+  private async loadManifest(): Promise<Manifest | null> {
     const manifestPath = path.join(this.resourcesPath, 'manifest.json')
     if (!fs.existsSync(manifestPath)) return null
 
     try {
       const content = fs.readFileSync(manifestPath, 'utf-8')
-      return JSON.parse(content)
+      const manifest = JSON.parse(content) as Manifest
+      // 兼容旧版 manifest（没有 downloaded 字段）
+      manifest.files = manifest.files.map(f => ({
+        ...f,
+        downloaded: f.downloaded ?? true  // 旧版默认认为已下载
+      }))
+      return manifest
     } catch {
       return null
     }
@@ -294,7 +370,7 @@ export class ResourceManager {
     path: string
     fileCount: number
     lastUpdate: string | null
-    source: ResourceSource | null
+    useGhProxy: boolean
   }> {
     const manifest = await this.loadManifest()
     
@@ -303,7 +379,7 @@ export class ResourceManager {
       path: this.resourcesPath,
       fileCount: manifest?.files.length || 0,
       lastUpdate: manifest?.version || null,
-      source: manifest?.source || null
+      useGhProxy: this.pluginConfig.useGhProxy
     }
   }
 
@@ -322,12 +398,11 @@ export class ResourceManager {
    * 类似 DataManager.init()，自动检查并更新资源
    */
   async syncResources(): Promise<void> {
-    const source = this.pluginConfig.resourceSource || 'github'
-    
-    this.logger.info(`开始同步静态资源 (${source})...`)
+    const useProxy = this.pluginConfig.useGhProxy
+    this.logger.info(`开始同步静态资源${useProxy ? ' (使用 GH-Proxy 加速)' : ''}...`)
 
     try {
-      const result = await this.downloadResources(source)
+      const result = await this.downloadResources()
       
       if (result.success) {
         if (result.downloaded > 0) {

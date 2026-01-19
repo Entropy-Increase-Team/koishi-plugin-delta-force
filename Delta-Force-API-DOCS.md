@@ -8,7 +8,7 @@ Delta Force API 是一个基于 Koa 框架的游戏数据查询和管理系统�
 
 **对于接口任何返回数据中不懂的部分，请看https://delta-force.apifox.cn，该接口文档由浅巷墨黎整理**
 
-**版本号：v2.2.3**
+**版本号：v2.2.6**
 
 ## WebSocket 服务
 
@@ -1648,6 +1648,10 @@ GET /df/object/list?primary=props&second=consume
 - `primary`: 一级分类 (可选)
 - `second`: 二级分类 (可选)
 
+**响应字段说明:**
+- `objectName`: 官方物品名称
+- `gameName`: 游戏内名字（如果数据库中有设置则使用设置值，否则默认为 `objectName`）
+
 ### 2. 搜索物品
 ```http
 GET /df/object/search?name=非洲
@@ -1660,6 +1664,77 @@ GET /df/object/search?id=14060000003
 **参数说明:**
 - `name`: 物品名称 (模糊搜索)
 - `id`: 物品ID (支持单个ID或逗号分隔的多个ID)（示例：14060000003；14060000003,14060000004；[14060000003,14060000004]）
+
+**响应字段说明:**
+- `objectName`: 官方物品名称
+- `gameName`: 游戏内名字（如果数据库中有设置则使用设置值，否则默认为 `objectName`）
+
+### 3. 设置物品游戏内名字（管理员）
+```http
+POST /df/object/setGameName
+```
+
+**功能说明**：管理员接口，用于设置物品的游戏内名字，修正部分物品游戏外名字和游戏内名字不同的情况。
+
+**权限要求**：需要管理员 clientID
+
+**请求体 (application/json)**：
+```json
+{
+  "clientID": "管理员ID",
+  "objectId": "14060000003",
+  "gameName": "游戏内显示的名字"
+}
+```
+
+**参数说明:**
+- `clientID`: 管理员ID（必填，可通过请求体或Query参数传递）
+- `objectId`: 物品ID（必填）
+- `gameName`: 游戏内名字（可选，传空字符串、null或不传则清除已设置的gameName）
+
+**成功响应示例（设置）：**
+```json
+{
+  "success": true,
+  "message": "游戏内名字设置成功",
+  "data": {
+    "objectId": 14060000003,
+    "objectName": "官方名称",
+    "gameName": "游戏内显示的名字"
+  }
+}
+```
+
+**成功响应示例（清除）：**
+```json
+{
+  "success": true,
+  "message": "已清除游戏内名字",
+  "data": {
+    "objectId": 14060000003,
+    "objectName": "官方名称",
+    "gameName": null
+  }
+}
+```
+
+**错误响应示例：**
+```json
+{
+  "success": false,
+  "code": "1001",
+  "message": "缺少必要参数: clientID"
+}
+```
+
+**错误码说明：**
+| 错误码 | HTTP状态码 | 说明 |
+|--------|-----------|------|
+| `1001` | 400 | 缺少必要参数: clientID |
+| `1002` | 400 | 缺少必需参数: objectId |
+| `1003` | 403 | 需要管理员权限 / gameName 必须是字符串类型 |
+| `1004` | 404 | 未找到物品 |
+| `9000` | 500 | 系统内部错误 |
 
 ### 健康状态信息
 ```http
@@ -1734,6 +1809,10 @@ GET /df/object/ammo?days=7
 
 **功能说明**：获取所有弹药物品及其价格历史数据，支持指定天数的历史价格查询
 
+**响应字段说明:**
+- `objectName`: 官方物品名称
+- `gameName`: 游戏内名字（如果数据库中有设置则使用设置值，否则默认为 `objectName`）
+
 **响应示例：**
 ```json
 {
@@ -1743,7 +1822,8 @@ GET /df/object/ammo?days=7
     "bullets": [
       {
         "objectID": 15010000001,
-        "name": "5.56x45mm NATO",
+        "objectName": "5.56x45mm NATO",
+        "gameName": "5.56x45mm NATO",
         "primaryClass": "ammo",
         "secondClass": "rifle",
         "caliber": "5.56x45mm",
@@ -4867,7 +4947,7 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
 ```json
 {
   "type": "ocr_task_update",
-  "taskId": "task_001",
+  "taskId": "ocr_server_001_weapon_1763126753000",
   "status": "running",
   "progress": 50,
   "result": {
@@ -4878,7 +4958,7 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
 ```
 
 **参数说明**：
-- `taskId`: 任务唯一标识（必填）
+- `taskId`: 任务唯一标识（**必填**，必须使用从 `ocr_task_command` 中收到的 `taskId`）
 - `status`: 任务状态（必填）
   - `pending`: 待处理
   - `running`: 运行中
@@ -4886,6 +4966,8 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
   - `failed`: 失败
 - `progress`: 任务进度（可选，0-100）
 - `result`: 任务结果（可选，任务完成时包含结果数据）
+
+**重要**：`taskId` 必须使用从 `ocr_task_command` 消息中收到的值，不要自行生成或使用 `taskName`。
 
 **服务端响应（成功）**：
 ```json
@@ -5217,6 +5299,7 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
   "channel": "ocr:all",
   "data": {
     "taskId": "task_001",
+    "taskName": "weapon",
     "status": "running",
     "progress": 50,
     "result": null,
@@ -5238,6 +5321,7 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
   "type": "ocr_task_command",
   "data": {
     "command": "start",
+    "taskId": "ocr_server_001_weapon_1763126753000",
     "taskName": "weapon",
     "params": {
       "cycle_count": 10
@@ -5253,6 +5337,7 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
   "type": "ocr_task_command",
   "data": {
     "command": "stop",
+    "taskId": "ocr_server_001_weapon_1763126753000",
     "taskName": "weapon"
   },
   "timestamp": 1763126753000
@@ -5261,8 +5346,11 @@ wss://your-api-domain:port/ws?type=ocr&key=your-connection-secret
 
 **参数说明**：
 - `command`: 命令类型（`start` 或 `stop`）
+- `taskId`: 任务唯一标识（**必填**，OCR 客户端上报状态时必须使用此 ID）
 - `taskName`: 任务名称
 - `params`: 任务参数（仅启动命令时有效）
+
+**重要**：OCR 客户端在收到任务命令后，通过 `ocr_task_update` 上报任务状态时，**必须使用 `taskId` 字段**，而不是 `taskName`。
 
 ### 可用频道
 
@@ -6358,3 +6446,200 @@ GET /df/tts/audio/:filename?token=xxx
 5. **后续请求**: 根据文本长度，通常 5~30 秒
 6. **超时时间**: 默认 120 秒
 7. **音频格式**: 支持 WAV, MP3, AAC, M4A, OGG, FLAC
+
+---
+
+## Koishi 资源同步服务
+
+### 概述
+
+Koishi 资源同步服务用于从 GitHub 仓库递归获取资源文件目录，并存储到本地数据库供分发使用。该服务会自动定时同步（默认 30 分钟），不存储文件内容，只存储文件的元数据和下载 URL。
+
+**数据来源**: `Entropy-Increase-Team/koishi-plugin-delta-force` 仓库的 `resources` 目录
+
+### 获取资源列表
+
+获取所有已同步的文件列表（扁平结构）。
+
+```http
+GET /koishi/resources
+```
+
+**查询参数**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `owner` | string | ❌ | Entropy-Increase-Team | 仓库所有者 |
+| `repo` | string | ❌ | koishi-plugin-delta-force | 仓库名称 |
+| `branch` | string | ❌ | main | 分支名称 |
+| `path` | string | ❌ | resources | 根目录路径 |
+
+**响应示例**
+
+```json
+{
+  "code": "SUCCESS",
+  "data": {
+    "repoKey": "Entropy-Increase-Team/koishi-plugin-delta-force/main/resources",
+    "syncedAt": "2026-01-20T02:35:00.000Z",
+    "totalFiles": 42,
+    "totalSize": 1234567,
+    "files": [
+      {
+        "name": "collection.css",
+        "path": "resources/Template/collection/collection.css",
+        "size": 25576,
+        "sha": "09429ca4a0ed77fb69787e7d73b9ddd5fea4727b",
+        "download_url": "https://raw.githubusercontent.com/Entropy-Increase-Team/koishi-plugin-delta-force/main/resources/Template/collection/collection.css",
+        "html_url": "https://github.com/Entropy-Increase-Team/koishi-plugin-delta-force/blob/main/resources/Template/collection/collection.css"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 获取资源树形结构
+
+获取所有已同步资源的树形目录结构。
+
+```http
+GET /koishi/resources/tree
+```
+
+**查询参数**
+
+同 `/koishi/resources`
+
+**响应示例**
+
+```json
+{
+  "code": "SUCCESS",
+  "data": {
+    "repoKey": "Entropy-Increase-Team/koishi-plugin-delta-force/main/resources",
+    "syncedAt": "2026-01-20T02:35:00.000Z",
+    "totalFiles": 42,
+    "totalDirs": 5,
+    "totalSize": 1234567,
+    "tree": {
+      "name": "resources",
+      "path": "resources",
+      "type": "dir",
+      "children": [
+        {
+          "name": "Template",
+          "path": "resources/Template",
+          "type": "dir",
+          "children": [
+            {
+              "name": "collection",
+              "path": "resources/Template/collection",
+              "type": "dir",
+              "children": [
+                {
+                  "name": "collection.css",
+                  "path": "resources/Template/collection/collection.css",
+                  "type": "file",
+                  "size": 25576,
+                  "sha": "09429ca4a0ed77fb69787e7d73b9ddd5fea4727b",
+                  "download_url": "https://raw.githubusercontent.com/...",
+                  "html_url": "https://github.com/..."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+---
+
+### 获取单个文件信息
+
+获取指定文件的详细信息。
+
+```http
+GET /koishi/resources/file?path=<文件路径>
+```
+
+**查询参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `path` | string | ✅ | 文件路径，如 `Template/collection/collection.css` |
+| `owner` | string | ❌ | 仓库所有者 |
+| `repo` | string | ❌ | 仓库名称 |
+| `branch` | string | ❌ | 分支名称 |
+
+**响应示例**
+
+```json
+{
+  "code": "SUCCESS",
+  "data": {
+    "name": "collection.css",
+    "path": "resources/Template/collection/collection.css",
+    "type": "file",
+    "size": 25576,
+    "sha": "09429ca4a0ed77fb69787e7d73b9ddd5fea4727b",
+    "download_url": "https://raw.githubusercontent.com/Entropy-Increase-Team/koishi-plugin-delta-force/main/resources/Template/collection/collection.css",
+    "html_url": "https://github.com/Entropy-Increase-Team/koishi-plugin-delta-force/blob/main/resources/Template/collection/collection.css",
+    "git_url": "https://api.github.com/repos/Entropy-Increase-Team/koishi-plugin-delta-force/git/blobs/09429ca4a0ed77fb69787e7d73b9ddd5fea4727b"
+  }
+}
+```
+
+**错误响应**
+
+| code | 说明 |
+|------|------|
+| `INVALID_PARAMS` | 缺少 path 参数 |
+| `RESOURCE_NOT_FOUND` | 资源未同步 |
+| `FILE_NOT_FOUND` | 文件不存在 |
+
+---
+
+### 获取同步状态
+
+获取资源同步状态和 GitHub API Rate Limit 信息。
+
+```http
+GET /koishi/resources/status
+```
+
+**查询参数**
+
+同 `/koishi/resources`
+
+**响应示例**
+
+```json
+{
+  "code": "SUCCESS",
+  "data": {
+    "synced": true,
+    "repoKey": "Entropy-Increase-Team/koishi-plugin-delta-force/main/resources",
+    "syncedAt": "2026-01-20T02:35:00.000Z",
+    "totalFiles": 42,
+    "totalDirs": 5,
+    "totalSize": 1234567,
+    "rateLimit": {
+      "remaining": 4998,
+      "limit": 5000,
+      "reset": "2026-01-20T03:00:00.000Z"
+    }
+  }
+}
+```
+
+### 自动同步机制
+
+- **同步间隔**: 默认每 30 分钟自动同步一次
+- **启动同步**: 服务启动后 5 秒执行首次同步
+- **防重入**: 同步进行中时跳过新的同步请求
+- **Rate Limit**: 自动处理 GitHub API 频率限制，低于阈值时等待重置
