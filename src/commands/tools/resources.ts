@@ -9,10 +9,11 @@ export function registerResourcesCommands(
 ) {
   const logger = ctx.logger('delta-force')
 
-  ctx.command('df.resources', '资源管理')
+  // 资源管理命令需要管理员权限（权限等级 4）
+  ctx.command('df.resources', '资源管理', { authority: 4 })
     .alias('df.资源')
 
-  ctx.command('df.resources.status', '查看资源状态')
+  ctx.command('df.resources.status', '查看资源状态', { authority: 4 })
     .alias('df.资源状态')
     .action(async () => {
       const status = await resourceManager.getStatus()
@@ -35,7 +36,7 @@ export function registerResourcesCommands(
       return lines.join('\n')
     })
 
-  ctx.command('df.resources.download [source:string]', '下载/更新资源')
+  ctx.command('df.resources.download [source:string]', '下载/更新资源', { authority: 4 })
     .alias('df.资源下载')
     .alias('df.下载资源')
     .alias('df.资源更新')
@@ -72,14 +73,14 @@ export function registerResourcesCommands(
       }
     })
 
-  ctx.command('df.resources.clean', '清理资源目录')
+  ctx.command('df.resources.clean', '清理资源目录', { authority: 4 })
     .alias('df.资源清理')
     .action(async ({ session }) => {
       await resourceManager.cleanResources()
       return '✅ 资源目录已清理，请使用 df.resources.download 重新下载'
     })
 
-  ctx.command('df.resources.check', '检查资源完整性')
+  ctx.command('df.resources.check', '检查资源完整性', { authority: 4 })
     .alias('df.资源检查')
     .action(async ({ session }) => {
       const status = await resourceManager.getStatus()
