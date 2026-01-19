@@ -9,18 +9,19 @@ interface MapStatsData {
   mapId: string
   mapName?: string
   data: {
-    a1?: number
-    cs?: number
-    zdj?: number
-    isescapednum?: number
-    killnum?: number
-    nums?: number
-    winnum?: number
-    zdjnum?: number
-    score?: number
-    gametime?: number
-    assist?: number
-    death?: number
+    // API 返回的数据都是字符串类型
+    a1?: string | number
+    cs?: string | number
+    zdj?: string | number
+    isescapednum?: string | number
+    killnum?: string | number
+    nums?: string | number
+    winnum?: string | number
+    zdjnum?: string | number
+    score?: string | number
+    gametime?: string | number
+    assist?: string | number
+    death?: string | number
   }
 }
 
@@ -197,10 +198,11 @@ export function registerMapStatsCommands(
     })
 }
 
-function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0分钟'
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
+function formatDuration(seconds: number | string): string {
+  const sec = typeof seconds === 'string' ? parseInt(seconds) : seconds
+  if (!sec || isNaN(sec)) return '0分钟'
+  const hours = Math.floor(sec / 3600)
+  const minutes = Math.floor((sec % 3600) / 60)
   return hours > 0 ? `${hours}小时${minutes}分钟` : `${minutes}分钟`
 }
 
@@ -222,21 +224,54 @@ function formatProfit(profit: number | string | undefined): string {
   return `${sign}${absValue.toLocaleString()}`
 }
 
-function calculateRate(numerator: number | undefined, denominator: number | undefined): string {
-  if (!numerator || !denominator || denominator === 0) return '0%'
-  return `${((numerator / denominator) * 100).toFixed(1)}%`
+function calculateRate(numerator: number | string | undefined, denominator: number | string | undefined): string {
+  if (!numerator || !denominator || denominator === '0') return '0%'
+  const num = typeof numerator === 'string' ? parseFloat(numerator) : numerator
+  const den = typeof denominator === 'string' ? parseFloat(denominator) : denominator
+  return (isNaN(num) || isNaN(den) || den === 0) ? '0%' : `${((num / den) * 100).toFixed(1)}%`
 }
 
-function calculateKDA(kill: number | undefined, assist: number | undefined, death: number | undefined): string {
-  const k = kill || 0
-  const a = assist || 0
-  const d = death || 0
-  if (d === 0) return k > 0 ? k.toFixed(2) : '0.00'
-  return ((k + a) / d).toFixed(2)
+function calculateKDA(kill: number | string | undefined, assist: number | string | undefined, death: number | string | undefined): string {
+  if (!kill || kill === '0') return '0.00'
+  const k = typeof kill === 'string' ? parseFloat(kill) : (kill || 0)
+  const a = typeof assist === 'string' ? parseFloat(assist) : (assist || 0)
+  const d = typeof death === 'string' ? parseFloat(death) : (death || 0)
+  if (isNaN(k) || isNaN(a) || isNaN(d)) return '0.00'
+  return d === 0 ? k.toFixed(2) : ((k + a) / d).toFixed(2)
 }
 
 function getMapBaseName(mapName: string): string {
   return mapName ? mapName.replace(/[-（(].*$/, '').trim() : ''
+}
+
+// 将字符串或数字转换为数字
+function toNumber(val: string | number | undefined): number {
+  if (val === null || val === undefined) return 0
+  const num = typeof val === 'string' ? parseFloat(val) : val
+  return isNaN(num) ? 0 : num
+}
+
+// 难度权重
+const difficultyWeights: Record<string, number> = { '常规': 1, '机密': 2, '绝密': 3, '适应': 4 }
+
+// 从地图名称中提取难度
+function getDifficulty(mapName: string): string {
+  if (!mapName) return ''
+  const match = mapName.match(/-([^-（(]+)/)
+  return match && match[1] ? match[1].replace(/[（(].*$/, '').trim() : ''
+}
+
+// 按难度排序地图列表
+function sortByDifficulty<T extends { mapName: string }>(maps: T[]): T[] {
+  return maps.sort((a, b) => {
+    const diffA = getDifficulty(a.mapName)
+    const diffB = getDifficulty(b.mapName)
+    const weightA = difficultyWeights[diffA] || 999
+    const weightB = difficultyWeights[diffB] || 999
+    if (weightA !== weightB) return weightA - weightB
+    if (diffA !== diffB) return diffA.localeCompare(diffB, 'zh-CN')
+    return a.mapName.localeCompare(b.mapName, 'zh-CN')
+  })
 }
 
 // 获取地图图片的相对路径（供模板拼接 _res_path）
@@ -257,12 +292,21 @@ function getMapImageRelativePath(mapName: string, mode: 'sol' | 'mp'): string | 
     }
     return `imgs/map/${prefix}${cleanName}.jpg`
   } else {
-    // 烽火地带模式：提取基础地图名称
+    // 烽火地带模式：提取基础地图名称和难度
     let baseName = cleanName
+    let difficulty = '常规'
     if (cleanName.includes('-')) {
-      baseName = cleanName.split('-')[0].trim()
+      const parts = cleanName.split('-')
+      baseName = parts[0].trim()
+      if (parts[1]) {
+        difficulty = parts[1].replace(/[（(].*$/, '').trim()
+      }
     }
-    return `imgs/map/${prefix}${baseName}-常规.png`
+    // 适应难度使用常规图片
+    if (difficulty === '适应') {
+      difficulty = '常规'
+    }
+    return `imgs/map/${prefix}${baseName}-${difficulty}.png`
   }
 }
 
@@ -358,7 +402,8 @@ function buildNormalMapStatsListForMode(
     }
   }
 
-  return result
+  // 按难度排序（与云崽版保持一致）
+  return sortByDifficulty(result)
 }
 
 // 构建单一模式的合并地图统计列表
@@ -411,11 +456,11 @@ function buildMergedMapStatsListForMode(
       }
 
       const merged = mergedMap.get(baseName)!
-      merged.profit += d.a1 || 0
-      merged.totalGames += d.zdj || d.cs || 0
-      merged.escaped += d.isescapednum || 0
-      merged.kill += d.killnum || 0
-      merged.failed += d.nums || 0
+      merged.profit += toNumber(d.a1)
+      merged.totalGames += toNumber(d.zdj) || toNumber(d.cs)
+      merged.escaped += toNumber(d.isescapednum)
+      merged.kill += toNumber(d.killnum)
+      merged.failed += toNumber(d.nums)
     }
 
     // 按总对局数排序
@@ -457,13 +502,13 @@ function buildMergedMapStatsListForMode(
       }
 
       const merged = mergedMap.get(baseName)!
-      merged.win += d.winnum || 0
-      merged.totalGames += d.zdjnum || 0
-      merged.score += d.score || 0
-      merged.gameTime += d.gametime || 0
-      merged.kill += d.killnum || 0
-      merged.assist += d.assist || 0
-      merged.death += d.death || 0
+      merged.win += toNumber(d.winnum)
+      merged.totalGames += toNumber(d.zdjnum)
+      merged.score += toNumber(d.score)
+      merged.gameTime += toNumber(d.gametime)
+      merged.kill += toNumber(d.killnum)
+      merged.assist += toNumber(d.assist)
+      merged.death += toNumber(d.death)
     }
 
     // 按总对局数排序
