@@ -69,42 +69,50 @@ export function registerLoginCommands(
           }
         }
 
-        // 根据不同平台生成专属的登录提示
-        let platformName: string
-        switch (platform) {
-          case 'qq':
-            platformName = 'QQ'
-            break
-          case 'wechat':
-            platformName = '微信'
-            break
-          case 'wegame':
-            platformName = 'WeGame（使用QQ扫描）'
-            break
-          case 'wegame/wechat':
-            platformName = 'WeGame（使用微信扫描）'
-            break
-          case 'qqsafe':
-            platformName = 'QQ安全中心'
-            break
-          default:
-            platformName = platform.toUpperCase()
-        }
-
         // 构建图片元素（根据 qrImage 类型）
+        // 使用 h.image() 快捷方法，确保 OneBot 等协议兼容
         let imageElement
         if (qrImage.startsWith('http')) {
           // URL 形式（微信）
-          imageElement = h('image', { url: qrImage })
+          imageElement = h.image(qrImage)
         } else {
-          // base64 形式（其他平台）
-          imageElement = h('image', { url: `data:image/png;base64,${qrImage}` })
+          // base64 形式（其他平台）- 使用 data: URL
+          imageElement = h.image(`data:image/png;base64,${qrImage}`)
         }
 
-        await session.send(h('message', [
-          h('text', `请使用【${platformName}】扫描二维码登录\n有效期约2分钟\n`),
-          imageElement,
-        ]))
+        // 根据不同平台生成专属的登录提示（与云崽版保持一致）
+        let loginTips: string
+        switch (platform) {
+          case 'qq':
+            // QQ登录 - 强调长按识别登录QQ账号
+            loginTips = `请使用【QQ】长按识别二维码登录QQ账号，有效期约2分钟。\n\n【免责声明】\n您将通过扫码授权本插件后端服务器获取您的游戏数据。\n扫码仅用于获取小程序数据，不涉及登录游戏，如果出现盗号等问题与我方完全无关。\n其他登陆方式请发送 ^帮助 查看菜单`
+            break
+          case 'qqsafe':
+            // QQ安全中心登录 - 强调登录QQ安全中心
+            loginTips = `请使用【QQ】长按识别二维码登录QQ安全中心账号，有效期约2分钟。\n\n【免责声明】\n您将通过扫码授权本插件后端服务器获取您的游戏数据。\n扫码仅用于获取小程序数据，不涉及登录游戏，如果出现盗号等问题与我方完全无关。\n其他登陆方式请发送 ^帮助 查看菜单`
+            break
+          case 'wechat':
+            // 微信登录 - 强调使用微信扫描
+            loginTips = `请使用【微信】扫描二维码登录微信账号，有效期约2分钟。\n\n【免责声明】\n您将通过扫码授权本插件后端服务器获取您的游戏数据。\n扫码仅用于获取小程序数据，不涉及登录游戏，如果出现盗号等问题与我方完全无关。\n如果无法扫码，请尝试使用其他方法登陆。`
+            break
+          case 'wegame':
+            // WeGame登录 - 强调使用QQ扫描登录WeGame
+            loginTips = `请使用【QQ】扫描二维码登录WeGame账号，有效期约2分钟。\n\n【免责声明】\n您将通过扫码授权本插件后端服务器获取您的游戏数据。\n扫码仅用于获取小程序数据，不涉及登录游戏，如果出现盗号等问题与我方完全无关。\n如果无法扫码，请尝试使用其他方法登陆。`
+            break
+          case 'wegame/wechat':
+            // WeGame微信登录 - 强调使用微信扫描登录WeGame
+            loginTips = `请使用【微信】扫描二维码登录WeGame账号，有效期约2分钟。\n\n【免责声明】\n您将通过扫码授权本插件后端服务器获取您的游戏数据。\n扫码仅用于获取小程序数据，不涉及登录游戏，如果出现盗号等问题与我方完全无关。\n如果无法扫码，请尝试使用其他方法登陆。`
+            break
+          default:
+            // 其他未知平台 - 使用通用提示
+            loginTips = `请扫描二维码登录${platform.toUpperCase()}账号，有效期约2分钟。\n\n【免责声明】\n您将通过扫码授权本插件后端服务器获取您的游戏数据。\n扫码仅用于获取小程序数据，不涉及登录游戏，如果出现盗号等问题与我方完全无关。\n如果无法扫码，请尝试使用其他方法登陆。`
+            break
+        }
+
+        // 发送提示文本
+        await session.send(loginTips)
+        // 单独发送图片，避免混合消息在某些平台上的兼容性问题
+        await session.send(imageElement)
 
         // 2. 轮询登录状态
         const startTime = Date.now()
@@ -283,5 +291,387 @@ export function registerLoginCommands(
         logger.error('角色绑定失败:', error)
         return `角色绑定失败: ${(error as Error).message}`
       }
+    })
+
+  // CK登录（Cookie登录）
+  ctx.command('df.cklogin [cookie:text]', 'Cookie登录')
+    .alias('df.ck登录')
+    .action(async ({ session }, cookie) => {
+      const userId = session.userId
+      const userPlatform = session.platform
+
+      if (!cookie) {
+        const helpMsg = [
+          '三角洲CK登录教程：',
+          '1. 准备via浏览器(或其他类似浏览器)，在浏览器中打开 https://pvp.qq.com/cp/a20161115tyf/page1.shtml',
+          '2. 在网页中进行QQ登录',
+          '3. 点击左上角的网页名左侧的盾图标',
+          '4. 点击查看cookies，然后复制全部内容',
+          '5. 返回聊天界面，私聊机器人，发送 df.cklogin 刚刚复制的cookies',
+          '6. 成功登录'
+        ].join('\n')
+        return helpMsg
+      }
+
+      await session.send('正在尝试使用Cookie登录，请稍候...')
+
+      try {
+        const res = await api.loginWithCookie(cookie)
+
+        if (!res || (res.code !== 0 && !res.success)) {
+          return `Cookie登录失败: ${res?.msg || res?.message || '请检查Cookie是否有效'}`
+        }
+
+        const finalToken = (res as { frameworkToken?: string }).frameworkToken
+        if (!finalToken) {
+          return '未能获取到有效的Token'
+        }
+
+        // 绑定用户
+        const bindRes = await api.bindUser({
+          platformID: userId,
+          frameworkToken: finalToken,
+          clientID: config.clientID,
+          clientType: 'koishi',
+        })
+
+        if (!bindRes || (bindRes.code !== 0 && !bindRes.success)) {
+          return `登录失败: ${bindRes?.msg || bindRes?.message || '未知错误'}`
+        }
+
+        // 获取账号列表并激活
+        const listRes = await api.getUserList(userId, config.clientID)
+        if (listRes && listRes.code === 0 && listRes.data) {
+          const newlyBoundAccount = listRes.data.find(a => a.frameworkToken === finalToken)
+          if (newlyBoundAccount) {
+            const newAccountGroupKey = getTokenGroup(newlyBoundAccount.tokenType)
+            await setGroupActiveToken(ctx, userId, userPlatform, newAccountGroupKey, finalToken)
+          }
+        }
+
+        // 自动绑定角色
+        const characterBindRes = await api.bindCharacter(finalToken)
+        if (characterBindRes && characterBindRes.success && characterBindRes.roleInfo) {
+          const { charac_name, level, tdmlevel, adultstatus } = characterBindRes.roleInfo
+          const isAdult = adultstatus === '0' ? '否' : '是'
+          
+          let charMsg = 'Cookie登录成功并角色信息已获取！\n'
+          charMsg += '--- 角色信息 ---\n'
+          charMsg += `昵称: ${charac_name}\n`
+          charMsg += `烽火地带等级: ${level}\n`
+          charMsg += `全面战场等级: ${tdmlevel}\n`
+          charMsg += `防沉迷: ${isAdult}`
+          
+          return charMsg
+        } else {
+          return 'Cookie登录成功！\n自动绑定角色失败，您可以稍后使用 df.bind 手动绑定。'
+        }
+      } catch (error) {
+        logger.error('Cookie登录失败:', error)
+        return `Cookie登录失败: ${(error as Error).message}`
+      }
+    })
+
+  // QQ OAuth授权登录
+  ctx.command('df.qqoauth [authUrl:text]', 'QQ OAuth授权登录')
+    .alias('df.qq授权登录')
+    .action(async ({ session }, authUrl) => {
+      const userId = session.userId
+      const userPlatform = session.platform
+
+      if (!authUrl) {
+        // 没有提供授权链接，显示帮助信息
+        try {
+          const res = await api.getQqOAuthAuth(userId)
+          
+          if (!res || res.code !== 0) {
+            return '获取授权链接失败，请稍后重试。'
+          }
+
+          const loginUrl = (res as { login_url?: string }).login_url
+          if (!loginUrl) {
+            return '获取授权链接失败，请稍后重试。'
+          }
+
+          const helpMsg = [
+            '三角洲QQ OAuth授权登录教程：',
+            `1. QQ内打开链接：${loginUrl}`,
+            '2. 点击登录',
+            '3. 登录成功后，点击右上角，选择复制链接',
+            '4. 返回聊天界面，发送 df.qqoauth 刚刚复制的链接',
+            '',
+            '⚠️ 新版OAuth登录更安全稳定，推荐使用！'
+          ].join('\n')
+
+          return helpMsg
+        } catch (error) {
+          logger.error('QQ OAuth登录获取链接失败:', error)
+          return '获取授权链接时发生错误，请稍后重试。'
+        }
+      }
+
+      try {
+        // 提交完整的授权URL
+        const res = await api.submitQqOAuthAuth(authUrl)
+        
+        if (!res || res.code !== 0) {
+          return `QQ OAuth授权提交失败: ${res?.msg || res?.message || '未知错误'}`
+        }
+
+        const finalToken = (res as { frameworkToken?: string }).frameworkToken
+        if (!finalToken) {
+          return '未能获取到有效的Token'
+        }
+
+        // 绑定用户
+        const bindRes = await api.bindUser({
+          platformID: userId,
+          frameworkToken: finalToken,
+          clientID: config.clientID,
+          clientType: 'koishi',
+        })
+
+        if (!bindRes || (bindRes.code !== 0 && !bindRes.success)) {
+          return `登录失败: ${bindRes?.msg || bindRes?.message || '未知错误'}`
+        }
+
+        // 获取账号列表并激活
+        const listRes = await api.getUserList(userId, config.clientID)
+        if (listRes && listRes.code === 0 && listRes.data) {
+          const newlyBoundAccount = listRes.data.find(a => a.frameworkToken === finalToken)
+          if (newlyBoundAccount) {
+            const newAccountGroupKey = getTokenGroup(newlyBoundAccount.tokenType)
+            await setGroupActiveToken(ctx, userId, userPlatform, newAccountGroupKey, finalToken)
+          }
+        }
+
+        // 自动绑定角色
+        const characterBindRes = await api.bindCharacter(finalToken)
+        if (characterBindRes && characterBindRes.success && characterBindRes.roleInfo) {
+          const { charac_name, level, tdmlevel, adultstatus } = characterBindRes.roleInfo
+          const isAdult = adultstatus === '0' ? '否' : '是'
+          
+          let charMsg = 'QQ OAuth登录成功并角色信息已获取！\n'
+          charMsg += '--- 角色信息 ---\n'
+          charMsg += `昵称: ${charac_name}\n`
+          charMsg += `烽火地带等级: ${level}\n`
+          charMsg += `全面战场等级: ${tdmlevel}\n`
+          charMsg += `防沉迷: ${isAdult}`
+          
+          return charMsg
+        } else {
+          return 'QQ OAuth登录成功！\n自动绑定角色失败，您可以稍后使用 df.bind 手动绑定。'
+        }
+      } catch (error) {
+        logger.error('QQ OAuth登录失败:', error)
+        return `QQ OAuth登录失败: ${(error as Error).message}`
+      }
+    })
+
+  // 微信OAuth授权登录
+  ctx.command('df.wxoauth [authUrl:text]', '微信OAuth授权登录')
+    .alias('df.微信授权登录')
+    .action(async ({ session }, authUrl) => {
+      const userId = session.userId
+      const userPlatform = session.platform
+
+      if (!authUrl) {
+        // 没有提供授权链接，显示帮助信息
+        try {
+          const res = await api.getWechatOAuthAuth(userId)
+          
+          if (!res || res.code !== 0) {
+            return '获取微信授权链接失败，请稍后重试。'
+          }
+
+          const loginUrl = (res as { login_url?: string }).login_url
+          if (!loginUrl) {
+            return '获取微信授权链接失败，请稍后重试。'
+          }
+
+          const helpMsg = [
+            '三角洲微信OAuth授权登录教程：',
+            `1. 微信内打开链接：${loginUrl}`,
+            '2. 点击登录',
+            '3. 登录成功后，点击右上角，选择复制链接',
+            '4. 返回聊天界面，发送 df.wxoauth 刚刚复制的链接',
+          ].join('\n')
+
+          return helpMsg
+        } catch (error) {
+          logger.error('微信OAuth登录获取链接失败:', error)
+          return '获取微信授权链接时发生错误，请稍后重试。'
+        }
+      }
+
+      try {
+        // 提交完整的授权URL
+        const res = await api.submitWechatOAuthAuth(authUrl)
+        
+        if (!res || res.code !== 0) {
+          return `微信OAuth授权提交失败: ${res?.msg || res?.message || '未知错误'}`
+        }
+
+        const finalToken = (res as { frameworkToken?: string }).frameworkToken
+        if (!finalToken) {
+          return '未能获取到有效的Token'
+        }
+
+        // 绑定用户
+        const bindRes = await api.bindUser({
+          platformID: userId,
+          frameworkToken: finalToken,
+          clientID: config.clientID,
+          clientType: 'koishi',
+        })
+
+        if (!bindRes || (bindRes.code !== 0 && !bindRes.success)) {
+          return `登录失败: ${bindRes?.msg || bindRes?.message || '未知错误'}`
+        }
+
+        // 获取账号列表并激活
+        const listRes = await api.getUserList(userId, config.clientID)
+        if (listRes && listRes.code === 0 && listRes.data) {
+          const newlyBoundAccount = listRes.data.find(a => a.frameworkToken === finalToken)
+          if (newlyBoundAccount) {
+            const newAccountGroupKey = getTokenGroup(newlyBoundAccount.tokenType)
+            await setGroupActiveToken(ctx, userId, userPlatform, newAccountGroupKey, finalToken)
+          }
+        }
+
+        // 自动绑定角色
+        const characterBindRes = await api.bindCharacter(finalToken)
+        if (characterBindRes && characterBindRes.success && characterBindRes.roleInfo) {
+          const { charac_name, level, tdmlevel, adultstatus } = characterBindRes.roleInfo
+          const isAdult = adultstatus === '0' ? '否' : '是'
+          
+          let charMsg = '微信OAuth登录成功并角色信息已获取！\n'
+          charMsg += '--- 角色信息 ---\n'
+          charMsg += `昵称: ${charac_name}\n`
+          charMsg += `烽火地带等级: ${level}\n`
+          charMsg += `全面战场等级: ${tdmlevel}\n`
+          charMsg += `防沉迷: ${isAdult}`
+          
+          return charMsg
+        } else {
+          return '微信OAuth登录成功！\n自动绑定角色失败，您可以稍后使用 df.bind 手动绑定。'
+        }
+      } catch (error) {
+        logger.error('微信OAuth登录失败:', error)
+        return `微信OAuth登录失败: ${(error as Error).message}`
+      }
+    })
+
+  // 网页登录
+  ctx.command('df.weblogin', '网页登录')
+    .alias('df.网页登录')
+    .action(async ({ session }) => {
+      const userId = session.userId
+      const userPlatform = session.platform
+
+      // 构建网页登录URL
+      const webLoginUrl = `https://df.shallow.ink/oauth-login?platformID=${userId}`
+
+      await session.send([
+        '三角洲行动网页OAuth登录：',
+        '请到浏览器打开：',
+        webLoginUrl,
+        '选择QQ或微信进行登录，三分钟内完成登录将会自动绑定'
+      ].join('\n'))
+
+      // 开始轮询登录状态
+      const startTime = Date.now()
+      const timeout = 180000 // 3分钟超时
+      const pollInterval = 3000 // 3秒轮询一次
+
+      let notifiedPending = false
+
+      while (Date.now() - startTime < timeout) {
+        await sleep(pollInterval)
+
+        try {
+          const statusRes = await api.getPlatformLoginStatus(userId)
+          
+          if (!statusRes || statusRes.code !== 0) {
+            continue
+          }
+
+          const sessions = (statusRes as { sessions?: Array<{ frameworkToken: string; status: string; type: string }> }).sessions || []
+          
+          if (sessions.length === 0) {
+            continue
+          }
+
+          // 检查是否有已完成的会话
+          for (const sess of sessions) {
+            if (!sess.frameworkToken || sess.status === 'expired') {
+              continue
+            }
+
+            if (!notifiedPending) {
+              await session.send('已检测到网页登录会话，正在等待您完成登录...')
+              notifiedPending = true
+            }
+
+            // 检查登录状态
+            const loginType = sess.type || 'qq'
+            let loginStatusRes
+            if (loginType === 'wechat') {
+              loginStatusRes = await api.getWechatOAuthStatus(sess.frameworkToken)
+            } else {
+              loginStatusRes = await api.getQqOAuthStatus(sess.frameworkToken)
+            }
+
+            if (loginStatusRes && loginStatusRes.code === 0) {
+              // 登录成功
+              const finalToken = sess.frameworkToken
+
+              // 绑定用户
+              const bindRes = await api.bindUser({
+                platformID: userId,
+                frameworkToken: finalToken,
+                clientID: config.clientID,
+                clientType: 'koishi',
+              })
+
+              if (!bindRes || (bindRes.code !== 0 && !bindRes.success)) {
+                return `登录失败: ${bindRes?.msg || bindRes?.message || '未知错误'}`
+              }
+
+              // 获取账号列表并激活
+              const listRes = await api.getUserList(userId, config.clientID)
+              if (listRes && listRes.code === 0 && listRes.data) {
+                const newlyBoundAccount = listRes.data.find(a => a.frameworkToken === finalToken)
+                if (newlyBoundAccount) {
+                  const newAccountGroupKey = getTokenGroup(newlyBoundAccount.tokenType)
+                  await setGroupActiveToken(ctx, userId, userPlatform, newAccountGroupKey, finalToken)
+                }
+              }
+
+              // 自动绑定角色
+              const characterBindRes = await api.bindCharacter(finalToken)
+              if (characterBindRes && characterBindRes.success && characterBindRes.roleInfo) {
+                const { charac_name, level, tdmlevel, adultstatus } = characterBindRes.roleInfo
+                const isAdult = adultstatus === '0' ? '否' : '是'
+                
+                let charMsg = `网页${loginType === 'wechat' ? '微信' : 'QQ'}登录成功并角色信息已获取！\n`
+                charMsg += '--- 角色信息 ---\n'
+                charMsg += `昵称: ${charac_name}\n`
+                charMsg += `烽火地带等级: ${level}\n`
+                charMsg += `全面战场等级: ${tdmlevel}\n`
+                charMsg += `防沉迷: ${isAdult}`
+                
+                return charMsg
+              } else {
+                return `网页${loginType === 'wechat' ? '微信' : 'QQ'}登录成功！\n自动绑定角色失败，您可以稍后使用 df.bind 手动绑定。`
+              }
+            }
+          }
+        } catch (error) {
+          logger.error('网页登录轮询失败:', error)
+        }
+      }
+
+      return '网页登录已超时，请重新尝试。'
     })
 }

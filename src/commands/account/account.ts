@@ -303,4 +303,122 @@ export function registerAccountCommands(
         return `刷新失败: ${(error as Error).message}`
       }
     })
+
+  // 手动绑定Token
+  ctx.command('df.bindtoken <token:string>', '手动绑定Token')
+    .alias('df.绑定')
+    .action(async ({ session }, token) => {
+      const userId = session.userId
+      const platform = session.platform
+
+      if (!token) {
+        return '请提供要绑定的Token'
+      }
+
+      await session.send('正在尝试绑定 Token...')
+
+      try {
+        const res = await api.bindUser({
+          platformID: userId,
+          frameworkToken: token,
+          clientID: config.clientID,
+          clientType: 'koishi',
+        })
+
+        if (res && (res.code === 0 || res.success)) {
+          // 获取账号列表并激活
+          const listRes = await api.getUserList(userId, config.clientID)
+          if (listRes && listRes.code === 0 && listRes.data) {
+            const newlyBoundAccount = listRes.data.find(a => a.frameworkToken === token)
+            if (newlyBoundAccount) {
+              const newAccountGroupKey = getTokenGroup(newlyBoundAccount.tokenType)
+              await setGroupActiveToken(ctx, userId, platform, newAccountGroupKey, token)
+            }
+          }
+          return '账号手动绑定成功！'
+        } else {
+          return `绑定失败: ${res?.msg || res?.message || '未知错误'}`
+        }
+      } catch (error) {
+        logger.error('手动绑定Token失败:', error)
+        return `绑定失败: ${(error as Error).message}`
+      }
+    })
+
+  // 删除账号（QQ/微信登录数据）
+  ctx.command('df.delete <序号:number>', '删除账号登录数据')
+    .alias('df.删除账号')
+    .action(async ({ session }, index) => {
+      const userId = session.userId
+      const platform = session.platform
+
+      try {
+        // 从云端获取账号列表
+        const listRes = await api.getUserList(userId, config.clientID)
+
+        if (!listRes || listRes.code !== 0 || !listRes.data) {
+          return `查询账号列表失败: ${listRes?.msg || listRes?.message || '未知错误'}`
+        }
+
+        const accounts = listRes.data as AccountItem[]
+
+        // 按分组整理并构建序号列表
+        const grouped = groupAccounts(accounts)
+        const allInOrder = buildOrderedAccountList(grouped)
+
+        if (index < 1 || index > allInOrder.length) {
+          return '序号无效，请使用 df.account 查看账号列表'
+        }
+
+        const targetAccount = allInOrder[index - 1]
+        const tokenType = targetAccount.tokenType?.toLowerCase()
+
+        // 只支持删除QQ和微信登录数据
+        if (!['qq', 'wechat'].includes(tokenType)) {
+          return `该账号类型（${targetAccount.tokenType}）不支持删除操作。\n删除功能仅支持QQ和微信登录数据。`
+        }
+
+        const tokenToDelete = targetAccount.frameworkToken
+        const maskedToken = `${tokenToDelete.substring(0, 4)}****${tokenToDelete.slice(-4)}`
+        const qqDisplay = targetAccount.qqNumber ? ` (${targetAccount.qqNumber.slice(0, 4)}****)` : ''
+
+        await session.send(`正在删除${targetAccount.tokenType.toUpperCase()}登录数据${qqDisplay} ${maskedToken}，请稍候...`)
+
+        let deleteRes
+        if (tokenType === 'qq') {
+          deleteRes = await api.deleteQqLogin(tokenToDelete)
+        } else if (tokenType === 'wechat') {
+          deleteRes = await api.deleteWechatLogin(tokenToDelete)
+        }
+
+        if (deleteRes && (deleteRes.success || deleteRes.code === 0)) {
+          // 删除成功后，同时解绑该账号
+          const unbindRes = await api.unbindUser({
+            platformID: userId,
+            frameworkToken: tokenToDelete,
+            clientID: config.clientID,
+            clientType: 'koishi',
+          })
+
+          // 如果删除的是当前激活账号，清除该分组的激活状态
+          const targetGroup = getTokenGroup(targetAccount.tokenType)
+          const groupActiveToken = await getGroupActiveToken(ctx, userId, platform, targetGroup)
+
+          if (groupActiveToken === tokenToDelete) {
+            await setGroupActiveToken(ctx, userId, platform, targetGroup, null)
+          }
+
+          if (unbindRes && (unbindRes.code === 0 || unbindRes.success)) {
+            return `${targetAccount.tokenType.toUpperCase()}登录数据删除成功！账号已自动解绑。`
+          } else {
+            return `${targetAccount.tokenType.toUpperCase()}登录数据删除成功！但账号解绑失败，请手动解绑。`
+          }
+        } else {
+          return `删除${targetAccount.tokenType.toUpperCase()}登录数据失败: ${deleteRes?.message || deleteRes?.msg || '未知错误'}`
+        }
+      } catch (error) {
+        logger.error('删除登录数据失败:', error)
+        return `删除登录数据时发生错误: ${(error as Error).message}`
+      }
+    })
 }

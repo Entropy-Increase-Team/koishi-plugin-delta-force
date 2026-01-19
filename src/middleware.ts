@@ -61,6 +61,41 @@ const commandRules: CommandRule[] = [
     pattern: /^\^(qq刷新|QQ刷新|刷新qq|刷新QQ)$/i,
     command: 'df.refresh.qq'
   },
+  // CK登录: ^\^ck(登陆|登录)\s*(.*)$
+  {
+    pattern: /^\^ck(登陆|登录)\s*(.*)$/i,
+    command: 'df.cklogin',
+    args: (match) => match[2]?.trim() || ''
+  },
+  // QQ OAuth登录: ^\^(qq|QQ)(授权|auth|oauth)(登陆|登录)\s*(.*)$
+  {
+    pattern: /^\^(qq|QQ)(授权|auth|oauth)(登陆|登录)\s*(.*)$/i,
+    command: 'df.qqoauth',
+    args: (match) => match[4]?.trim() || ''
+  },
+  // 微信OAuth登录: ^\^(微信|wx|WX)(授权|auth|oauth)(登陆|登录)\s*(.*)$
+  {
+    pattern: /^\^(微信|wx|WX)(授权|auth|oauth)(登陆|登录)\s*(.*)$/i,
+    command: 'df.wxoauth',
+    args: (match) => match[4]?.trim() || ''
+  },
+  // 网页登录: ^\^(网页|web|网站)(登陆|登录)$
+  {
+    pattern: /^\^(网页|web|网站)(登陆|登录)$/i,
+    command: 'df.weblogin'
+  },
+  // 手动绑定Token: ^\^绑定\s+([a-zA-Z0-9\-]+)$
+  {
+    pattern: /^\^绑定\s+([a-zA-Z0-9\-]+)$/i,
+    command: 'df.bindtoken',
+    args: (match) => match[1] || ''
+  },
+  // 删除账号: ^\^删除账号\s*(\d+)$
+  {
+    pattern: /^\^删除账号\s*(\d+)$/i,
+    command: 'df.delete',
+    args: (match) => match[1] || ''
+  },
 
   // ==================== 战报相关 ====================
   // 日报: ^\^(日报|daily)\s*(.*)$

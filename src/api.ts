@@ -109,6 +109,63 @@ export class ApiService {
     return this.request('GET', '/login/qqsafe/ban', { frameworkToken })
   }
 
+  /** 通过Cookie登录QQ */
+  async loginWithCookie(cookie: string): Promise<ApiResponse> {
+    return this.request('POST', '/login/qq/ck', { cookie })
+  }
+
+  /** 获取QQ OAuth授权链接 */
+  async getQqOAuthAuth(platformID?: string, botID?: string): Promise<ApiResponse> {
+    const params: Record<string, string> = {}
+    if (platformID) params.platformID = platformID
+    if (botID) params.botID = botID
+    return this.request('GET', '/login/qq/oauth/auth', params)
+  }
+
+  /** 提交QQ OAuth授权 */
+  async submitQqOAuthAuth(authurl?: string, frameworkToken?: string, authcode?: string): Promise<ApiResponse> {
+    const data: Record<string, string> = {}
+    if (authurl) data.authurl = authurl
+    if (frameworkToken) data.frameworkToken = frameworkToken
+    if (authcode) data.authcode = authcode
+    return this.request('POST', '/login/qq/oauth/auth', data)
+  }
+
+  /** 获取QQ OAuth状态 */
+  async getQqOAuthStatus(frameworkToken: string): Promise<ApiResponse> {
+    return this.request('GET', '/login/qq/oauth/status', { frameworkToken })
+  }
+
+  /** 获取微信OAuth授权链接 */
+  async getWechatOAuthAuth(platformID?: string, botID?: string): Promise<ApiResponse> {
+    const params: Record<string, string> = {}
+    if (platformID) params.platformID = platformID
+    if (botID) params.botID = botID
+    return this.request('GET', '/login/wechat/oauth/auth', params)
+  }
+
+  /** 提交微信OAuth授权 */
+  async submitWechatOAuthAuth(authurl?: string, frameworkToken?: string, authcode?: string): Promise<ApiResponse> {
+    const data: Record<string, string> = {}
+    if (authurl) data.authurl = authurl
+    if (frameworkToken) data.frameworkToken = frameworkToken
+    if (authcode) data.authcode = authcode
+    return this.request('POST', '/login/wechat/oauth/auth', data)
+  }
+
+  /** 获取微信OAuth状态 */
+  async getWechatOAuthStatus(frameworkToken: string): Promise<ApiResponse> {
+    return this.request('GET', '/login/wechat/oauth/status', { frameworkToken })
+  }
+
+  /** 获取平台登录状态（网页登录用） */
+  async getPlatformLoginStatus(platformID: string, botID?: string, type?: string): Promise<ApiResponse> {
+    const params: Record<string, string> = { platformID }
+    if (botID) params.botID = botID
+    if (type) params.type = type
+    return this.request('GET', '/login/platform/status', params)
+  }
+
   // ==================== 用户账号相关接口 ====================
 
   /** 绑定用户 Token */
