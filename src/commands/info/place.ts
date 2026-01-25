@@ -1,7 +1,8 @@
-import { Context } from 'koishi'
+import { Context, h } from 'koishi'
 import { ApiService } from '../../api'
 import { getActiveToken } from '../../database'
-import { handleApiError } from '../../utils'
+import { handleApiError, getUserDisplayInfo } from '../../utils'
+import { Renderer } from '../../render'
 
 // 特勤处设施类型映射
 const PLACE_TYPE_MAP: Record<string, string> = {
@@ -34,12 +35,27 @@ const PLACE_TYPE_NAMES: Record<string, string> = {
 // 设施显示顺序
 const PLACE_TYPE_ORDER = ['storage', 'control', 'workbench', 'tech', 'shoot', 'training', 'pharmacy', 'armory', 'collect', 'diving']
 
+// 场所类型图片映射
+const TYPE_IMAGE_MAP: Record<string, string> = {
+  'storage': '仓库.png',
+  'control': '指挥中心.png',
+  'workbench': '工作台.png',
+  'tech': '技术中心.png',
+  'shoot': '靶场.png',
+  'training': '训练中心.png',
+  'pharmacy': '制药台.png',
+  'armory': '防具台.png',
+  'collect': '收藏室.png',
+  'diving': '潜水中心.png',
+}
+
 /**
  * 注册特勤处信息查询相关命令
  */
 export function registerPlaceCommands(
   ctx: Context,
-  api: ApiService
+  api: ApiService,
+  renderer: Renderer
 ) {
   const logger = ctx.logger('delta-force')
 
@@ -124,13 +140,57 @@ export function registerPlaceCommands(
           return '未能查询到任何特勤处设施信息'
         }
 
+        // 获取用户信息（用于模板）
+        const userDisplayInfo = await getUserDisplayInfo(api, token, userId, session.username || '用户')
+
         // 如果指定了类型
         if (placeType) {
-          return formatPlacesByType(places, placeType, level, relateMap || {})
+          return await renderPlacesByType(places, placeType, level, relateMap || {}, userDisplayInfo, renderer, session, logger)
         }
 
-        // 查询所有类型
-        return formatAllPlaces(places, relateMap || {})
+        // 查询所有类型 - 逐个发送每个类型的图片
+        const groupedByType: Record<string, typeof places> = {}
+        places.forEach(place => {
+          const pType = place.placeType || 'unknown'
+          if (!groupedByType[pType]) {
+            groupedByType[pType] = []
+          }
+          groupedByType[pType].push(place)
+        })
+
+        const sortedTypes = Object.keys(groupedByType).sort((a, b) => {
+          const indexA = PLACE_TYPE_ORDER.indexOf(a)
+          const indexB = PLACE_TYPE_ORDER.indexOf(b)
+          if (indexA === -1 && indexB === -1) return a.localeCompare(b)
+          if (indexA === -1) return 1
+          if (indexB === -1) return -1
+          return indexA - indexB
+        })
+
+        for (const pType of sortedTypes) {
+          const typePlaces = groupedByType[pType]
+          if (typePlaces.length === 0) continue
+
+          // 获取最高等级的设施
+          const maxLevel = Math.max(...typePlaces.map(p => p.level || 0))
+          const maxLevelPlace = typePlaces.find(p => p.level === maxLevel)
+          if (!maxLevelPlace) continue
+
+          const processedPlace = processPlace(maxLevelPlace, relateMap || {})
+          const placeTypeName = PLACE_TYPE_NAMES[pType] || pType
+
+          const templateData = {
+            userName: userDisplayInfo.userName,
+            userAvatar: userDisplayInfo.userAvatar || userDisplayInfo.qqAvatarUrl,
+            qqAvatarUrl: userDisplayInfo.qqAvatarUrl,
+            placeTypeName,
+            places: [processedPlace],
+          }
+
+          const imageResult = await renderer.renderToMessage('placeInfo', templateData)
+          await session.send(imageResult)
+        }
+        return
       } catch (error) {
         logger.error('查询特勤处信息失败:', error)
         return `查询失败: ${(error as Error).message}`
@@ -190,41 +250,55 @@ export function registerPlaceCommands(
     })
 }
 
-/**
- * 格式化指定类型的设施信息
- */
-function formatPlacesByType(
-  places: Array<{
-    placeType: string
-    placeName?: string
-    level?: number
-    detail?: string
-    upgradeInfo?: {
-      condition?: string
-      hafCount?: number
-    }
-    upgradeRequired?: Array<{
-      objectID: string | number
-      count: number
+// 设施信息接口
+interface PlaceInfo {
+  placeType: string
+  placeName?: string
+  level?: number
+  detail?: string
+  upgradeInfo?: {
+    condition?: string
+    hafCount?: number
+  }
+  upgradeRequired?: Array<{
+    objectID: string | number
+    count: number
+  }>
+  unlockInfo?: {
+    properties?: { list?: string[] }
+    props?: Array<{
+      objectID?: string | number
+      name?: string
+      objectName?: string
+      count?: number
     }>
-    unlockInfo?: {
-      properties?: { list?: string[] }
-      props?: Array<{
-        objectID?: string | number
-        name?: string
-        objectName?: string
-        count?: number
-      }>
-    }
-  }>,
+  }
+}
+
+// 用户显示信息接口
+interface UserDisplayInfo {
+  userName: string
+  userAvatar: string
+  qqAvatarUrl: string
+}
+
+/**
+ * 渲染指定类型的设施信息
+ */
+async function renderPlacesByType(
+  places: PlaceInfo[],
   placeType: string,
   targetLevel: number | undefined,
-  relateMap: Record<string, { objectName?: string; pic?: string }>
-): string {
+  relateMap: Record<string, { objectName?: string; pic?: string }>,
+  userDisplayInfo: UserDisplayInfo,
+  renderer: Renderer,
+  session: { send: (msg: unknown) => Promise<unknown> },
+  logger: ReturnType<Context['logger']>
+): Promise<h | string> {
   const typeName = PLACE_TYPE_NAMES[placeType] || placeType
 
   // 按等级分组
-  const groupedByLevel: Record<number, typeof places> = {}
+  const groupedByLevel: Record<number, PlaceInfo[]> = {}
   places.forEach(place => {
     const level = place.level || 0
     if (!groupedByLevel[level]) {
@@ -239,6 +313,7 @@ function formatPlacesByType(
   if (targetLevel !== undefined) {
     let levelPlaces = groupedByLevel[targetLevel]
     let actualLevel = targetLevel
+    let needNotify = false
 
     // 如果指定等级不存在，返回最高等级
     if (!levelPlaces || levelPlaces.length === 0) {
@@ -248,6 +323,7 @@ function formatPlacesByType(
       const maxLevel = Math.max(...sortedLevels)
       levelPlaces = groupedByLevel[maxLevel]
       actualLevel = maxLevel
+      needNotify = true
 
       if (!levelPlaces || levelPlaces.length === 0) {
         return `未找到 ${typeName} 的设施信息`
@@ -255,168 +331,170 @@ function formatPlacesByType(
     }
 
     const place = levelPlaces[0]
-    const lines: string[] = []
+    const processedPlace = processPlace(place, relateMap)
 
-    if (actualLevel !== targetLevel) {
-      lines.push(`⚠️ 未找到等级 ${targetLevel}，显示最高等级 ${actualLevel}`)
-      lines.push('')
+    const templateData = {
+      userName: userDisplayInfo.userName,
+      userAvatar: userDisplayInfo.userAvatar || userDisplayInfo.qqAvatarUrl,
+      qqAvatarUrl: userDisplayInfo.qqAvatarUrl,
+      placeTypeName: typeName,
+      places: [processedPlace],
     }
 
-    lines.push(`【${typeName} - Lv.${actualLevel}】`)
-    lines.push('━━━━━━━━━━━━━━━')
-    lines.push(...formatPlaceDetail(place, relateMap))
+    if (needNotify) {
+      await session.send(`未找到 ${typeName} 等级 ${targetLevel}，已返回最高等级 ${actualLevel}。`)
+    }
 
-    return lines.join('\n')
+    return await renderer.renderToMessage('placeInfo', templateData)
   }
 
-  // 显示所有等级
-  const lines: string[] = [`【${typeName}】`]
-  lines.push(`共 ${places.length} 个设施，${sortedLevels.length} 个等级`)
-  lines.push('━━━━━━━━━━━━━━━')
-
-  sortedLevels.forEach(level => {
+  // 没有指定等级，逐个发送每个等级的图片
+  for (const level of sortedLevels) {
     const levelPlaces = groupedByLevel[level]
-    if (levelPlaces.length === 0) return
+    if (levelPlaces.length === 0) continue
 
     const place = levelPlaces[0]
-    lines.push('')
-    lines.push(`📍 Lv.${level}`)
-    lines.push(...formatPlaceDetail(place, relateMap))
-  })
+    const processedPlace = processPlace(place, relateMap)
 
-  return lines.join('\n')
+    const templateData = {
+      userName: userDisplayInfo.userName,
+      userAvatar: userDisplayInfo.userAvatar || userDisplayInfo.qqAvatarUrl,
+      qqAvatarUrl: userDisplayInfo.qqAvatarUrl,
+      placeTypeName: typeName,
+      places: [processedPlace],
+    }
+
+    const imageResult = await renderer.renderToMessage('placeInfo', templateData)
+    await session.send(imageResult)
+  }
+
+  return ''
 }
 
 /**
- * 格式化所有设施信息
+ * 处理单个设施数据，格式化供模板使用（与云崽版保持一致）
  */
-function formatAllPlaces(
-  places: Array<{
-    placeType: string
-    placeName?: string
-    level?: number
-  }>,
+function processPlace(
+  place: PlaceInfo,
   relateMap: Record<string, { objectName?: string; pic?: string }>
-): string {
-  // 按类型分组
-  const groupedByType: Record<string, typeof places> = {}
-  places.forEach(place => {
-    const type = place.placeType || 'unknown'
-    if (!groupedByType[type]) {
-      groupedByType[type] = []
-    }
-    groupedByType[type].push(place)
-  })
+): Record<string, unknown> {
+  const placeTypeValue = place.placeType || ''
+  let displayName = place.placeName || ''
+  
+  // 如果名称不包含中文，使用类型名称
+  if (!/[\u4e00-\u9fa5]/.test(displayName)) {
+    displayName = PLACE_TYPE_NAMES[placeTypeValue] || displayName || '未知设施'
+  }
 
-  // 按顺序排列
-  const sortedTypes = Object.keys(groupedByType).sort((a, b) => {
-    const indexA = PLACE_TYPE_ORDER.indexOf(a)
-    const indexB = PLACE_TYPE_ORDER.indexOf(b)
-    if (indexA === -1 && indexB === -1) return a.localeCompare(b)
-    if (indexA === -1) return 1
-    if (indexB === -1) return -1
-    return indexA - indexB
-  })
+  // 获取设施图片路径
+  const imageFileName = TYPE_IMAGE_MAP[placeTypeValue] || null
+  const imageUrl = imageFileName ? `imgs/place/${imageFileName}` : null
 
-  const lines: string[] = ['【特勤处设施总览】']
-  lines.push('━━━━━━━━━━━━━━━')
+  const processedPlace: Record<string, unknown> = {
+    displayName,
+    level: place.level || 0,
+    imageUrl,
+    upgradeInfo: null,
+    upgradeRequired: [],
+    unlockInfo: null,
+    detail: place.detail || '',
+  }
 
-  sortedTypes.forEach(type => {
-    const typePlaces = groupedByType[type]
-    const typeName = PLACE_TYPE_NAMES[type] || type
-
-    // 获取最高等级
-    const maxLevel = Math.max(...typePlaces.map(p => p.level || 0))
-    const levelCount = new Set(typePlaces.map(p => p.level || 0)).size
-
-    lines.push(`📍 ${typeName}: 最高 Lv.${maxLevel} (共 ${levelCount} 级)`)
-  })
-
-  lines.push('')
-  lines.push('使用 df.place <设施名> 查看详细信息')
-
-  return lines.join('\n')
-}
-
-/**
- * 格式化单个设施详情
- */
-function formatPlaceDetail(
-  place: {
-    detail?: string
-    upgradeInfo?: {
-      condition?: string
-      hafCount?: number
-    }
-    upgradeRequired?: Array<{
-      objectID: string | number
-      count: number
-    }>
-    unlockInfo?: {
-      properties?: { list?: string[] }
-      props?: Array<{
-        objectID?: string | number
-        name?: string
-        objectName?: string
-        count?: number
-      }>
-    }
-  },
-  relateMap: Record<string, { objectName?: string; pic?: string }>
-): string[] {
-  const lines: string[] = []
-
-  // 升级信息
+  // 处理升级信息
   if (place.upgradeInfo) {
-    const { condition, hafCount } = place.upgradeInfo
-    if (condition && condition !== '无' && condition !== '默认解锁') {
-      lines.push(`升级条件: ${condition}`)
+    let conditionText = place.upgradeInfo.condition || '无'
+    let conditions: string[] = []
+    let levelCondition: string | null = null
+
+    if (conditionText && conditionText !== '无' && conditionText !== '默认解锁') {
+      const allConditions = conditionText.split(/[;；]/).map(c => c.trim()).filter(c => c.length > 0)
+      allConditions.forEach(condition => {
+        if (/解锁等级|等级\d+/.test(condition)) {
+          levelCondition = condition
+        } else {
+          conditions.push(condition)
+        }
+      })
     }
-    if (hafCount && hafCount > 0) {
-      lines.push(`升级费用: ${hafCount.toLocaleString()} 烽火币`)
+
+    processedPlace.upgradeInfo = {
+      condition: conditionText,
+      conditions,
+      levelCondition,
+      hafCount: place.upgradeInfo.hafCount || 0,
+      hafCountFormatted: place.upgradeInfo.hafCount && place.upgradeInfo.hafCount > 0 
+        ? place.upgradeInfo.hafCount.toLocaleString() 
+        : '0',
     }
   }
 
-  // 升级所需物品
+  // 处理升级所需物品
   if (place.upgradeRequired && place.upgradeRequired.length > 0) {
-    lines.push('升级材料:')
-    place.upgradeRequired.forEach(req => {
+    processedPlace.upgradeRequired = place.upgradeRequired.map(req => {
       const itemInfo = relateMap[String(req.objectID)]
-      const itemName = itemInfo?.objectName || `物品(${req.objectID})`
-      lines.push(`  • ${itemName} x${req.count}`)
+      const itemName = itemInfo ? itemInfo.objectName : `物品ID: ${req.objectID}`
+      const imgUrl = itemInfo?.pic || (req.objectID ? `https://playerhub.df.qq.com/playerhub/60004/object/${req.objectID}.png` : null)
+      return {
+        objectName: itemName,
+        count: req.count,
+        imageUrl: imgUrl,
+      }
     })
   }
 
-  // 解锁内容
+  // 处理解锁信息
   if (place.unlockInfo) {
-    const { properties, props } = place.unlockInfo
-
-    if (properties?.list && properties.list.length > 0) {
-      lines.push('解锁属性:')
-      properties.list.forEach(prop => {
-        lines.push(`  • ${prop}`)
-      })
+    const unlockData: { properties: string[]; props: Array<{ objectName: string; imageUrl: string | null; count: number | null }> } = {
+      properties: [],
+      props: [],
     }
 
-    if (props && props.length > 0) {
-      lines.push('解锁道具:')
-      props.forEach(prop => {
-        let itemName = '未知道具'
-        if (prop.objectID) {
-          const itemInfo = relateMap[String(prop.objectID)]
-          itemName = itemInfo?.objectName || prop.name || prop.objectName || `物品(${prop.objectID})`
-        } else if (prop.name || prop.objectName) {
-          itemName = prop.name || prop.objectName || '未知道具'
+    const properties = place.unlockInfo.properties?.list || []
+    if (properties.length > 0) {
+      unlockData.properties = properties.map(prop => {
+        if (typeof prop === 'string') {
+          return prop
+        } else if (prop && typeof prop === 'object') {
+          return (prop as { name?: string; objectName?: string; desc?: string }).name || 
+                 (prop as { name?: string; objectName?: string; desc?: string }).objectName || 
+                 (prop as { name?: string; objectName?: string; desc?: string }).desc || 
+                 JSON.stringify(prop)
         }
-        const countStr = prop.count ? ` x${prop.count}` : ''
-        lines.push(`  • ${itemName}${countStr}`)
+        return String(prop)
       })
+    }
+
+    const props = place.unlockInfo.props || []
+    if (props.length > 0) {
+      unlockData.props = props.map(prop => {
+        if (typeof prop === 'string') {
+          return { objectName: prop, imageUrl: null, count: null }
+        } else if (prop && typeof prop === 'object') {
+          let objectName = '未知道具'
+          let imgUrl: string | null = null
+
+          if (prop.objectID) {
+            const itemInfo = relateMap[String(prop.objectID)]
+            objectName = itemInfo && itemInfo.objectName ? itemInfo.objectName : `物品ID: ${prop.objectID}`
+            imgUrl = itemInfo?.pic || `https://playerhub.df.qq.com/playerhub/60004/object/${prop.objectID}.png`
+          } else if (prop.name || prop.objectName) {
+            objectName = prop.name || prop.objectName || '未知道具'
+          }
+
+          return {
+            objectName,
+            imageUrl: imgUrl,
+            count: prop.count || null,
+          }
+        }
+        return { objectName: String(prop), imageUrl: null, count: null }
+      })
+    }
+
+    if (unlockData.properties.length > 0 || unlockData.props.length > 0) {
+      processedPlace.unlockInfo = unlockData
     }
   }
 
-  if (lines.length === 0) {
-    lines.push('暂无详细信息')
-  }
-
-  return lines
+  return processedPlace
 }

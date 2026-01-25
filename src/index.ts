@@ -24,6 +24,10 @@ import {
   registerBanCommands,
   registerOperatorCommands,
   registerHealthCommands,
+  registerPersonalDataCommands,
+  registerStatsCommands,
+  registerRedRecordCommands,
+  registerRedCollectionCommands,
 } from './commands/info'
 
 // Tools commands
@@ -39,6 +43,9 @@ import {
 
 // Entertainment commands
 import { registerVoiceCommands, registerTtsCommands } from './commands/entertainment'
+
+// System commands
+import { registerHelpCommands } from './commands/system'
 
 export const name = 'delta-force'
 export { Config } from './config'
@@ -86,75 +93,6 @@ export function apply(ctx: Context, config: Config) {
   ctx.command('df', '三角洲行动')
     .alias('三角洲')
 
-  // 帮助指令
-  ctx.command('df.help', '查看帮助')
-    .action(async () => {
-      return `三角洲行动插件
-使用 ^xxx 格式触发指令
-
-【账号相关】
-• ^登录 / ^QQ登录 / ^微信登录 / ^wegame登录
-• ^账号 - 账号列表
-• ^切换 <序号> - 切换账号
-• ^解绑 <序号> - 解绑账号
-
-【信息查询】
-• ^信息 - 查看个人信息
-• ^uid - 查看UID
-• ^货币 - 货币信息
-• ^流水 [类型] [页码] - 交易流水
-• ^藏品 [类型] - 个人藏品
-• ^日报 [sol/mp] - 查看日报
-• ^周报 [sol/mp] - 查看周报
-• ^战绩 [sol/mp] [页码] - 查看战绩
-• ^地图统计 [模式] - 地图统计
-• ^特勤处 [设施] [等级] - 特勤处信息
-• ^封号记录 - 违规记录(需qqsafe)
-• ^干员列表 - 干员列表
-• ^干员 <名称> - 干员详情
-• ^服务器状态 - API服务器状态
-
-【物品价格】
-• ^物品搜索 <名称> - 搜索物品
-• ^价格 <名称> - 查询价格
-• ^价格历史 <名称> - 价格历史
-• ^利润排行 - 利润排行
-• ^特勤利润 - 特勤处利润
-• ^材料价格 - 材料价格
-
-【AI功能】
-• ^AI锐评 [模式] - AI锐评战绩
-• ^AI预设列表 - 查看预设列表
-
-【工具】
-• ^每日密码 - 每日密码
-• ^帮助 - 查看帮助
-
-【改枪方案】
-• ^改枪码列表 [武器名] - 方案列表
-• ^改枪码详情 <ID> - 方案详情
-• ^上传改枪码 <码> - 上传方案
-• ^改枪码收藏 - 我的收藏
-
-【开黑房间】
-• ^房间列表 [模式] - 房间列表
-• ^创建房间 <模式> - 创建房间
-• ^加入房间 <ID> [密码] - 加入房间
-• ^房间信息 - 当前房间信息
-
-【语音功能】
-• ^语音 [角色] [场景] - 随机语音
-• ^语音列表 - 角色列表
-• ^标签列表 - 特殊标签
-• ^tts <角色> [情感] <文本> - TTS合成
-• ^tts角色列表 - TTS角色
-
-【资源管理】
-• ^资源状态 - 查看资源状态
-• ^资源下载 / ^资源更新 [github/gitee] - 下载/更新资源
-• ^资源清理 - 清理资源目录`
-    })
-
   // 注册各功能模块
   registerLoginCommands(ctx, config, api)
   registerInfoCommands(ctx, api, dataManager, renderer)
@@ -170,12 +108,16 @@ export function apply(ctx: Context, config: Config) {
   
   // 新增 info 模块命令
   registerMoneyCommands(ctx, api)
-  registerFlowsCommands(ctx, api)
-  registerCollectionCommands(ctx, api)
-  registerPlaceCommands(ctx, api)
+  registerFlowsCommands(ctx, api, renderer)
+  registerCollectionCommands(ctx, api, renderer)
+  registerPlaceCommands(ctx, api, renderer)
   registerBanCommands(ctx, api)
-  registerOperatorCommands(ctx, api, dataManager)
+  registerOperatorCommands(ctx, api, dataManager, renderer)
   registerHealthCommands(ctx, api)
+  registerPersonalDataCommands(ctx, api, dataManager, renderer)
+  registerStatsCommands(ctx, config, api)
+  registerRedRecordCommands(ctx, api, dataManager, renderer)
+  registerRedCollectionCommands(ctx, api, dataManager, renderer)
   
   // 新增 tools 模块命令
   registerSolutionCommands(ctx, config, api)
@@ -187,6 +129,9 @@ export function apply(ctx: Context, config: Config) {
 
   // 资源管理命令
   registerResourcesCommands(ctx, config, resourceManager)
+
+  // 系统命令
+  registerHelpCommands(ctx, renderer)
 
   logger.info('三角洲行动插件加载完成')
 }

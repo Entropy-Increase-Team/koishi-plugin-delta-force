@@ -305,6 +305,13 @@ export class ApiService {
     return this.request('GET', '/df/person/friendinfo', { frameworkToken, openid })
   }
 
+  // ==================== 统计相关接口 ====================
+
+  /** 获取用户统计信息 */
+  async getUserStats(clientID: string): Promise<ApiResponse> {
+    return this.request('GET', '/stats/users', { clientID })
+  }
+
   // ==================== 战报相关接口 ====================
 
   /** 获取日报 */

@@ -1,6 +1,7 @@
 import { Context } from 'koishi'
 import { ApiService } from '../../api'
 import { DataManager } from '../../data'
+import { Renderer } from '../../render'
 
 // 兵种 ID 范围映射
 function getArmyTypeById(id: number): string {
@@ -20,7 +21,8 @@ const ARMY_TYPE_ORDER = ['突击', '工程', '支援', '侦察']
 export function registerOperatorCommands(
   ctx: Context,
   api: ApiService,
-  dataManager: DataManager
+  dataManager: DataManager,
+  renderer: Renderer
 ) {
   const logger = ctx.logger('delta-force')
 
@@ -33,7 +35,8 @@ export function registerOperatorCommands(
       try {
         const res = await api.getOperators()
 
-        if (!res || res.code !== 0) {
+        // 与云崽版保持一致：检查 success 字段或 code 字段
+        if (!res || (res.success === false && String(res.code) !== '0')) {
           return `查询失败: ${res?.msg || res?.message || '未知错误'}`
         }
 
@@ -107,7 +110,8 @@ export function registerOperatorCommands(
       try {
         const res = await api.getOperator()
 
-        if (!res || res.code !== 0) {
+        // 与云崽版保持一致：检查 success 字段或 code 字段
+        if (!res || (res.success === false && String(res.code) !== '0')) {
           return `查询失败: ${res?.msg || res?.message || '未知错误'}`
         }
 
@@ -150,53 +154,45 @@ export function registerOperatorCommands(
         ) || matchedOperators[0]
 
         // 如果匹配到多个，提示用户
-        let multiMatchHint = ''
         if (matchedOperators.length > 1) {
           const names = matchedOperators.map(op => op.operator || op.fullName).join('、')
-          multiMatchHint = `⚠️ 找到多个匹配: ${names}\n显示第一个匹配结果\n\n`
+          await session.send(`找到多个匹配的干员：${names}，将显示第一个匹配结果。`)
         }
 
-        // 构建输出
-        const lines: string[] = []
-        
-        if (multiMatchHint) {
-          lines.push(multiMatchHint)
+        // 提取英文名（从 fullName 中提取）
+        let englishName = ''
+        const fullName = operator.fullName || ''
+        const englishMatch = fullName.match(/[A-Za-z\s·]+/)
+        if (englishMatch) {
+          englishName = englishMatch[0].trim().toUpperCase()
         }
 
-        lines.push(`【${operator.operator || '未知干员'}】`)
-        
-        if (operator.fullName) {
-          lines.push(`全名: ${operator.fullName}`)
-        }
-        
-        if (operator.armyType) {
-          lines.push(`兵种: ${operator.armyType}`)
-        }
-        
-        if (operator.armyTypeDesc) {
-          lines.push(`兵种描述: ${operator.armyTypeDesc}`)
-        }
-
-        // 技能列表
-        if (operator.abilitiesList && operator.abilitiesList.length > 0) {
-          lines.push('')
-          lines.push('━━━ 技能列表 ━━━')
-          
-          operator.abilitiesList.forEach((ability, index) => {
-            lines.push('')
-            lines.push(`【${ability.abilityName || '未知技能'}】`)
-            
-            if (ability.abilityTypeCN || ability.abilityType) {
-              lines.push(`类型: ${ability.abilityTypeCN || ability.abilityType}`)
-            }
-            
-            if (ability.abilityDesc) {
-              lines.push(`描述: ${ability.abilityDesc}`)
-            }
-          })
+        // 准备模板数据（与云崽版保持一致）
+        const templateData = {
+          operatorName: operator.operator || '未知干员',
+          fullName: fullName,
+          englishName: englishName,
+          operatorPic: operator.pic || '',
+          background: '',
+          armyType: operator.armyType || '',
+          armyTypeDesc: operator.armyTypeDesc || '',
+          abilitiesList: (operator.abilitiesList || []).map(ability => ({
+            abilityName: ability.abilityName || '未知技能',
+            abilityType: ability.abilityType || '',
+            abilityTypeCN: ability.abilityTypeCN || ability.abilityType || '',
+            abilityDesc: ability.abilityDesc || '',
+            abilityPic: ability.abilityPic || ''
+          }))
         }
 
-        return lines.join('\n')
+        // 使用渲染器渲染图片
+        try {
+          const imageResult = await renderer.renderToMessage('operator', templateData)
+          return imageResult
+        } catch (renderError) {
+          logger.error('渲染干员信息失败:', renderError)
+          return `渲染失败: ${(renderError as Error).message}`
+        }
       } catch (error) {
         logger.error('查询干员信息失败:', error)
         return `查询失败: ${(error as Error).message}`

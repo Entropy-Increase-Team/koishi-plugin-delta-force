@@ -200,6 +200,29 @@ const commandRules: CommandRule[] = [
     pattern: /^\^(服务器状态|health)$/i,
     command: 'df.health'
   },
+  // 个人数据: ^\^(数据|data|个人数据)\s*(.*)$
+  {
+    pattern: /^\^(数据|data|个人数据)\s*(.*)$/i,
+    command: 'df.data',
+    args: (match) => match[2]?.trim() || ''
+  },
+  // 用户统计: ^\^用户统计$
+  {
+    pattern: /^\^用户统计$/i,
+    command: 'df.stats'
+  },
+  // 出红记录: ^\^(出红记录|大红记录|藏品记录)\s*(.*)$
+  {
+    pattern: /^\^(出红记录|大红记录|藏品记录)\s*(.*)$/i,
+    command: 'df.redrecord',
+    args: (match) => match[2]?.trim() || ''
+  },
+  // 大红收藏: ^\^(大红收藏|大红藏品|大红海报|藏品海报)\s*(\d*)$
+  {
+    pattern: /^\^(大红收藏|大红藏品|大红海报|藏品海报)\s*(\d*)$/i,
+    command: 'df.redcollection',
+    args: (match) => match[2]?.trim() || ''
+  },
 
   // ==================== 价格工具 ====================
   // 价格历史: ^\^(价格历史|历史价格)\s+(.+)$
@@ -274,6 +297,11 @@ const commandRules: CommandRule[] = [
   {
     pattern: /^\^(帮助|菜单|功能|help)$/i,
     command: 'df.help'
+  },
+  // 娱乐帮助: ^\^娱乐(帮助|菜单|功能)$
+  {
+    pattern: /^\^娱乐(帮助|菜单|功能)$/i,
+    command: 'df.entertainment'
   },
 
   // ==================== 资源管理 ====================

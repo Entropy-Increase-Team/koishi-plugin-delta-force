@@ -1,7 +1,7 @@
-import { Context } from 'koishi'
+import { Context, h } from 'koishi'
 import { ApiService } from '../../api'
 import { getActiveToken } from '../../database'
-import { handleApiError } from '../../utils'
+import { Renderer } from '../../render'
 
 // 流水类型映射
 const FLOW_TYPE_MAP: Record<string, number> = {
@@ -21,7 +21,8 @@ const FLOW_TYPE_NAMES: Record<number, string> = {
  */
 export function registerFlowsCommands(
   ctx: Context,
-  api: ApiService
+  api: ApiService,
+  renderer: Renderer
 ) {
   const logger = ctx.logger('delta-force')
 
@@ -39,7 +40,7 @@ export function registerFlowsCommands(
         return '您尚未登录，请先使用 df.login 登录'
       }
 
-      const isAll = options?.all || false
+      const isAll = options?.all || type?.toLowerCase() === 'all'
       const pageNum = page || 1
 
       // 解析类型
@@ -56,18 +57,19 @@ export function registerFlowsCommands(
       try {
         // 如果指定了类型，只查询该类型
         if (typeValue) {
-          const result = await queryFlowsByType(api, token, typeValue, pageNum, isAll, logger)
-          return result
+          return await renderFlowsByType(api, renderer, token, typeValue, pageNum, isAll, session, logger)
         }
 
-        // 未指定类型，查询所有类型
-        const results: string[] = []
+        // 未指定类型，查询所有类型并逐个发送图片
         for (const [typeName, typeVal] of Object.entries(FLOW_TYPE_MAP)) {
-          const result = await queryFlowsByType(api, token, typeVal, pageNum, false, logger)
-          results.push(`【${typeName}流水】\n${result}`)
+          const result = await renderFlowsByType(api, renderer, token, typeVal, pageNum, false, session, logger)
+          if (typeof result === 'string') {
+            await session.send(`【${typeName}流水】\n${result}`)
+          } else {
+            await session.send(result)
+          }
         }
-
-        return results.join('\n\n')
+        return
       } catch (error) {
         logger.error('查询流水失败:', error)
         return `查询失败: ${(error as Error).message}`
@@ -76,29 +78,44 @@ export function registerFlowsCommands(
 }
 
 /**
- * 查询指定类型的流水
+ * 渲染指定类型的流水图片
  */
-async function queryFlowsByType(
+async function renderFlowsByType(
   api: ApiService,
+  renderer: Renderer,
   token: string,
   typeValue: number,
   page: number,
   isAll: boolean,
+  session: { send: (msg: unknown) => Promise<unknown> },
   logger: ReturnType<Context['logger']>
-): Promise<string> {
+): Promise<h | string> {
   const typeName = FLOW_TYPE_NAMES[typeValue]
+
+  // 获取数据
+  let allRecords: unknown[] = []
+  let totalPages = 1
+  let playerInfo: { vRoleName?: string; Level?: string; loginDay?: string } | null = null
 
   if (isAll) {
     // 获取所有页数据
-    const allRecords: unknown[] = []
     let currentPage = 1
-    
     while (true) {
       const res = await api.getFlows(token, typeValue, currentPage)
-      if (!res || res.code !== 0) break
-      
+      // 与云崽版保持一致：检查 success 字段或 code 字段
+      if (!res || (res.success === false && String(res.code) !== '0')) break
+
       const data = (res.data as unknown[])?.[0] as Record<string, unknown> | undefined
       if (!data) break
+
+      // 保存玩家信息（仅设备流水）
+      if (typeValue === 1 && currentPage === 1 && data.vRoleName) {
+        playerInfo = {
+          vRoleName: data.vRoleName as string,
+          Level: data.Level as string,
+          loginDay: data.loginDay as string,
+        }
+      }
 
       const arrKey = typeValue === 1 ? 'LoginArr' : typeValue === 2 ? 'itemArr' : 'iMoneyArr'
       const records = data[arrKey] as unknown[] | undefined
@@ -106,102 +123,173 @@ async function queryFlowsByType(
 
       allRecords.push(...records)
       currentPage++
-      
-      // 防止无限循环
       if (currentPage > 50) break
     }
+    totalPages = currentPage - 1
+  } else {
+    // 单页查询
+    const res = await api.getFlows(token, typeValue, page)
+    // 与云崽版保持一致：检查 success 字段或 code 字段
+    if (!res || (res.success === false && String(res.code) !== '0')) {
+      return `查询失败: ${res?.msg || res?.message || '未知错误'}`
+    }
 
-    if (allRecords.length === 0) {
+    const data = (res.data as unknown[])?.[0] as Record<string, unknown> | undefined
+    if (!data) {
       return '暂无记录'
     }
 
-    return formatFlowRecords(typeValue, allRecords, `全部 (${currentPage - 1}页)`)
+    // 保存玩家信息（仅设备流水）
+    if (typeValue === 1 && data.vRoleName) {
+      playerInfo = {
+        vRoleName: data.vRoleName as string,
+        Level: data.Level as string,
+        loginDay: data.loginDay as string,
+      }
+    }
+
+    const arrKey = typeValue === 1 ? 'LoginArr' : typeValue === 2 ? 'itemArr' : 'iMoneyArr'
+    const records = data[arrKey] as unknown[] | undefined
+    if (!records || records.length === 0) {
+      return '当前页无记录'
+    }
+    allRecords = records
   }
 
-  // 单页查询
-  const res = await api.getFlows(token, typeValue, page)
-  
-  if (!res || res.code !== 0) {
-    return `查询失败: ${res?.msg || res?.message || '未知错误'}`
-  }
-
-  const data = (res.data as unknown[])?.[0] as Record<string, unknown> | undefined
-  if (!data) {
+  if (allRecords.length === 0) {
     return '暂无记录'
   }
 
-  const arrKey = typeValue === 1 ? 'LoginArr' : typeValue === 2 ? 'itemArr' : 'iMoneyArr'
-  const records = data[arrKey] as unknown[] | undefined
+  // 准备模板数据
+  const templateData = prepareTemplateData(allRecords, typeValue, isAll ? `全部` : page, typeName, playerInfo, isAll)
 
-  if (!records || records.length === 0) {
-    return '当前页无记录'
-  }
-
-  return formatFlowRecords(typeValue, records, `第 ${page} 页`)
+  // 渲染图片
+  const imageResult = await renderer.renderToMessage('flows', templateData)
+  return imageResult
 }
 
 /**
- * 格式化流水记录
+ * 准备模板数据（与云崽版保持一致）
  */
-function formatFlowRecords(typeValue: number, records: unknown[], pageInfo: string): string {
-  const lines: string[] = [`${pageInfo} (共 ${records.length} 条)`]
-  lines.push('━━━━━━━━━━━━━━━')
+function prepareTemplateData(
+  records: unknown[],
+  typeValue: number,
+  page: number | string,
+  typeName: string,
+  playerInfo: { vRoleName?: string; Level?: string; loginDay?: string } | null,
+  isAllPages: boolean
+): Record<string, unknown> {
+  const templateData: Record<string, unknown> = {
+    typeName,
+    typeValue,
+    page,
+  }
 
-  // 限制显示数量
-  const displayRecords = records.slice(0, 20)
+  // 按列分组（5列布局）
+  const groupByColumns = (arr: unknown[], itemsPerColumn: number, isAll = false) => {
+    const columns: unknown[][] = [[], [], [], [], []]
+    arr.forEach((item, index) => {
+      const columnIndex = index % 5
+      if (isAll || columns[columnIndex].length < itemsPerColumn) {
+        columns[columnIndex].push(item)
+      } else {
+        for (let i = 0; i < 5; i++) {
+          const col = columns[(columnIndex + i + 1) % 5]
+          if (col.length < itemsPerColumn) {
+            col.push(item)
+            break
+          }
+        }
+      }
+    })
+    return columns.filter(col => col.length > 0)
+  }
 
   switch (typeValue) {
-    case 1: // 设备登录记录
-      displayRecords.forEach((record, index) => {
-        const r = record as {
+    case 1: // 设备流水
+      if (playerInfo) {
+        templateData.playerInfo = playerInfo
+      }
+      const loginRecords = records.map((r, i) => {
+        const record = r as {
           indtEventTime?: string
           outdtEventTime?: string
           vClientIP?: string
           SystemHardware?: string
         }
-        lines.push(`${index + 1}. ${r.indtEventTime || '未知时间'}`)
-        lines.push(`   IP: ${r.vClientIP || '未知'} | 设备: ${r.SystemHardware || '未知'}`)
+        return {
+          index: i + 1,
+          indtEventTime: record.indtEventTime || '',
+          outdtEventTime: record.outdtEventTime || '',
+          vClientIP: record.vClientIP || '未知',
+          SystemHardware: record.SystemHardware || '未知',
+        }
       })
+      templateData.loginColumns = groupByColumns(loginRecords, 5, isAllPages)
+
+      // 统计设备和IP
+      const deviceStats: Record<string, number> = {}
+      const ipStats: Record<string, number> = {}
+      records.forEach(r => {
+        const record = r as { SystemHardware?: string; vClientIP?: string }
+        const device = record.SystemHardware || '未知设备'
+        const ip = record.vClientIP || '未知IP'
+        deviceStats[device] = (deviceStats[device] || 0) + 1
+        ipStats[ip] = (ipStats[ip] || 0) + 1
+      })
+      templateData.totalCount = records.length
+      templateData.deviceStats = Object.entries(deviceStats)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+      templateData.ipStats = Object.entries(ipStats)
+        .map(([ip, count]) => ({ ip, count }))
+        .sort((a, b) => b.count - a.count)
       break
 
-    case 2: // 道具记录
-      displayRecords.forEach((record, index) => {
-        const r = record as {
+    case 2: // 道具流水
+      const itemRecords = records.map((r, i) => {
+        const record = r as {
           dtEventTime?: string
           Name?: string
           AddOrReduce?: string
           Reason?: string
         }
-        const change = r.AddOrReduce || ''
-        const changeSymbol = change.startsWith('+') ? '📈' : '📉'
-        lines.push(`${index + 1}. ${r.dtEventTime || '未知时间'}`)
-        lines.push(`   ${changeSymbol} ${r.Name || '未知物品'} ${change}`)
-        lines.push(`   原因: ${decodeReason(r.Reason)}`)
+        const addOrReduce = String(record.AddOrReduce || '')
+        return {
+          index: i + 1,
+          dtEventTime: record.dtEventTime || '',
+          Name: record.Name || '未知物品',
+          AddOrReduce: addOrReduce,
+          Reason: decodeReason(record.Reason),
+          changeType: addOrReduce.startsWith('+') ? 'positive' : 'negative',
+        }
       })
+      templateData.itemColumns = groupByColumns(itemRecords, 10, isAllPages)
       break
 
-    case 3: // 货币记录
-      displayRecords.forEach((record, index) => {
-        const r = record as {
+    case 3: // 货币流水
+      const moneyRecords = records.map((r, i) => {
+        const record = r as {
           dtEventTime?: string
           AddOrReduce?: string
           leftMoney?: string
           Reason?: string
         }
-        const change = r.AddOrReduce || ''
-        const changeSymbol = change.startsWith('+') ? '📈' : '📉'
-        lines.push(`${index + 1}. ${r.dtEventTime || '未知时间'}`)
-        lines.push(`   ${changeSymbol} ${change} | 余额: ${r.leftMoney || '未知'}`)
-        lines.push(`   原因: ${decodeReason(r.Reason)}`)
+        const addOrReduce = String(record.AddOrReduce || '')
+        return {
+          index: i + 1,
+          dtEventTime: record.dtEventTime || '',
+          AddOrReduce: addOrReduce,
+          leftMoney: record.leftMoney || '未知',
+          Reason: decodeReason(record.Reason),
+          changeType: addOrReduce.startsWith('+') ? 'positive' : 'negative',
+        }
       })
+      templateData.moneyColumns = groupByColumns(moneyRecords, 10, isAllPages)
       break
   }
 
-  if (records.length > 20) {
-    lines.push(`\n... 还有 ${records.length - 20} 条记录未显示`)
-  }
-
-  return lines.join('\n')
+  return templateData
 }
 
 /**

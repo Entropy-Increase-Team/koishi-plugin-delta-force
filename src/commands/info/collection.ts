@@ -2,6 +2,7 @@ import { Context } from 'koishi'
 import { ApiService } from '../../api'
 import { getActiveToken } from '../../database'
 import { handleApiError } from '../../utils'
+import { Renderer } from '../../render'
 
 // 品质配置
 const QUALITY_CONFIG: Record<string, { level: number; color: string | null }> = {
@@ -23,12 +24,26 @@ const COLOR_TO_QUALITY: Record<string, string> = {
 // 支持的藏品类型
 const SUPPORTED_TYPES = ['干员皮肤', '喷漆', '挂饰', '典藏枪皮', '枪皮', '载具', '头像', '军牌']
 
+// 类型背景图片映射
+const CATEGORY_BG_MAP: Record<string, string> = {
+  '干员皮肤': 'operator-skin',
+  '喷漆': 'property-gx-li3.webp',
+  '挂饰': 'property-gx-li2.webp',
+  '典藏枪皮': 'property-jz-bg.webp',
+  '枪皮': 'property-jz-bg.webp',
+  '载具': 'property-qx-bg2.webp',
+  '头像': 'property-gx-li3.webp',
+  '军牌': 'property-jz-bg.webp',
+  '其他资产': 'property-gx-li3.webp',
+}
+
 /**
  * 注册藏品查询相关命令
  */
 export function registerCollectionCommands(
   ctx: Context,
-  api: ApiService
+  api: ApiService,
+  renderer: Renderer
 ) {
   const logger = ctx.logger('delta-force')
 
@@ -57,7 +72,8 @@ export function registerCollectionCommands(
 
         if (await handleApiError(collectionRes, session)) return
 
-        if (!collectionMapRes || collectionMapRes.code !== 0) {
+        // 与云崽版保持一致：检查 success 字段或 code 字段
+        if (!collectionMapRes || (collectionMapRes.success === false && String(collectionMapRes.code) !== '0')) {
           logger.warn('获取藏品对照表失败:', collectionMapRes?.message)
           return '获取藏品基础信息失败，无法展示您的资产'
         }
@@ -88,22 +104,22 @@ export function registerCollectionCommands(
           (collectionMapRes.data as CollectionMapItem[]).map(item => [String(item.id), item])
         )
 
-        // 按类型和品质分组
+        // 按类型和品质分组（与云崽版保持一致）
         const categorizedItems: Record<string, Record<string, Array<{
           name: string
           id: string
-          quality: string
+          imageUrl: string
           qualityLevel: number
+          category: string
         }>>> = {}
 
-        const availableTypes = new Set<string>()
+        const qualityOrder = ['传说', '史诗', '稀有', '普通', '其他']
 
         allUserItems.forEach(item => {
           const itemInfo = collectionMap.get(item.ItemId)
           if (!itemInfo) return
 
           const primaryCategory = itemInfo.type || '其他资产'
-          availableTypes.add(primaryCategory)
 
           // 类型过滤
           if (typeFilter && !primaryCategory.includes(typeFilter) && !typeFilter.includes(primaryCategory)) {
@@ -122,8 +138,9 @@ export function registerCollectionCommands(
           categorizedItems[primaryCategory][quality].push({
             name: itemInfo.name,
             id: item.ItemId,
-            quality,
+            imageUrl: `https://playerhub.df.qq.com/playerhub/60004/object/${item.ItemId}.png`,
             qualityLevel: QUALITY_CONFIG[quality]?.level || 1,
+            category: primaryCategory,
           })
         })
 
@@ -131,80 +148,86 @@ export function registerCollectionCommands(
           return `未找到类型"${typeFilter}"的藏品\n\n支持的查询类型: ${SUPPORTED_TYPES.join('、')}`
         }
 
-        // 构建输出消息
-        const typeName = typeFilter || '所有藏品'
-        const lines: string[] = [`【${typeName}】`]
-        lines.push('━━━━━━━━━━━━━━━')
+        // 构建模板数据（与云崽版保持一致）
+        const categories: Array<{
+          name: string
+          items: Array<{
+            name: string
+            id: string
+            imageUrl: string
+            qualityLevel: number
+            category: string
+          }>
+          count: number
+          bgImage: string
+        }> = []
 
-        // 统计各品质数量
-        const qualityStats: Record<string, number> = {}
+        const qualityStatsMap: Record<string, number> = {}
         let totalCount = 0
-
-        // 品质显示顺序
-        const qualityOrder = ['传说', '史诗', '稀有', '普通', '其他']
 
         for (const category in categorizedItems) {
           const categoryItems = categorizedItems[category]
+          const categoryItemsList: Array<{
+            name: string
+            id: string
+            imageUrl: string
+            qualityLevel: number
+            category: string
+          }> = []
           let categoryCount = 0
-          const categoryLines: string[] = []
 
           qualityOrder.forEach(quality => {
-            const items = categoryItems[quality]
-            if (items && items.length > 0) {
-              categoryCount += items.length
-              totalCount += items.length
-              qualityStats[quality] = (qualityStats[quality] || 0) + items.length
+            if (categoryItems[quality] && categoryItems[quality].length > 0) {
+              const qualityItems = categoryItems[quality]
+              categoryCount += qualityItems.length
+              totalCount += qualityItems.length
 
-              // 品质图标
-              const qualityIcon = getQualityIcon(quality)
-              categoryLines.push(`  ${qualityIcon} ${quality} (${items.length}件)`)
-              
-              // 显示前5个物品名称
-              const displayItems = items.slice(0, 5)
-              displayItems.forEach(item => {
-                categoryLines.push(`    • ${item.name}`)
-              })
-              if (items.length > 5) {
-                categoryLines.push(`    ... 还有 ${items.length - 5} 件`)
+              if (!qualityStatsMap[quality]) {
+                qualityStatsMap[quality] = 0
               }
+              qualityStatsMap[quality] += qualityItems.length
+
+              categoryItemsList.push(...qualityItems)
             }
           })
 
           if (categoryCount > 0) {
-            lines.push(`\n【${category}】(${categoryCount}件)`)
-            lines.push(...categoryLines)
+            categories.push({
+              name: category,
+              items: categoryItemsList,
+              count: categoryCount,
+              bgImage: CATEGORY_BG_MAP[category] || 'property-gx-li3.webp',
+            })
           }
         }
 
-        // 添加统计信息
-        lines.unshift(`总计: ${totalCount} 件藏品`)
-        
-        const statsLine = qualityOrder
-          .filter(q => qualityStats[q])
-          .map(q => `${getQualityIcon(q)}${qualityStats[q]}`)
-          .join(' | ')
-        
-        if (statsLine) {
-          lines.splice(2, 0, statsLine)
+        if (categories.length === 0) {
+          return '未能解析到您的任何藏品信息'
         }
 
-        return lines.join('\n')
+        // 生成品质统计数组
+        const qualityStats = qualityOrder
+          .filter(quality => qualityStatsMap[quality] && qualityStatsMap[quality] > 0)
+          .map(quality => ({
+            level: QUALITY_CONFIG[quality]?.level || 1,
+            count: qualityStatsMap[quality],
+          }))
+
+        const typeName = typeFilter || '所有藏品'
+
+        const templateData = {
+          typeName,
+          totalCount,
+          qualityStats,
+          categories,
+        }
+
+        // 使用渲染器渲染图片
+        const imageResult = await renderer.renderToMessage('collection', templateData)
+        return imageResult
       } catch (error) {
         logger.error('查询藏品失败:', error)
         return `查询失败: ${(error as Error).message}`
       }
     })
-}
-
-/**
- * 获取品质图标
- */
-function getQualityIcon(quality: string): string {
-  switch (quality) {
-    case '传说': return '🟠'
-    case '史诗': return '🟣'
-    case '稀有': return '🔵'
-    case '普通': return '🟢'
-    default: return '⚪'
-  }
 }

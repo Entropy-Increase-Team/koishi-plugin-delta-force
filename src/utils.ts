@@ -39,30 +39,66 @@ export function decode(str: string): string {
 }
 
 /**
- * 处理 API 错误响应
+ * 处理 API 错误响应（与云崽版保持一致）
  */
 export async function handleApiError(
   response: ApiResponse,
   session: Session
 ): Promise<boolean> {
-  if (!response) {
-    await session.send('请求失败，请稍后重试')
+  // Case 0: Null or non-object response
+  if (!response || typeof response !== 'object') {
+    await session.send('请求失败，API未返回任何数据或数据格式错误。')
     return true
   }
 
-  if (response.code !== 0 && !response.success) {
+  // Case 1: API Key/Auth invalid (code: 1000 or 1001)
+  if (String(response.code) === '1000' || String(response.code) === '1001') {
+    await session.send('API Key无效或已过期，请联系机器人管理员检查配置。')
+    return true
+  }
+
+  // Case 1.1: API Key permission insufficient (code: 1100)
+  if (String(response.code) === '1100') {
+    await session.send('APIKey权限不足，请机器人升级订阅后使用。')
+    return true
+  }
+
+  // Case 2: Login session invalid
+  const data = response.data as Record<string, unknown> | undefined
+  if (data?.ret === 101) {
+    await session.send('登录已失效，请重新登录。')
+    return true
+  }
+
+  // Case 3: Region not bound
+  if (data?.ret === 99998) {
+    await session.send('您尚未绑定游戏大区，请先使用绑定命令进行绑定。')
+    return true
+  }
+
+  // Case 4: Token not found or invalid
+  if (response.success === false && (
+    response.message?.includes('未找到有效token') || 
+    response.message?.includes('缺少frameworkToken参数')
+  )) {
+    await session.send('当前激活的账号无效，请重新登陆账号或切换有效账号。')
+    return true
+  }
+
+  // Generic failure catch-all
+  if (response.success === false) {
+    // 特殊处理：某些成功消息可能被错误标记为 success: false
+    if (response.message && (
+      response.message.includes('上传成功') ||
+      response.message.includes('查询成功') ||
+      response.message.includes('操作成功') ||
+      response.message.includes('删除成功') ||
+      response.message.includes('更新成功')
+    )) {
+      return false // 不处理为错误
+    }
+
     const errorMsg = response.msg || response.message || '未知错误'
-    
-    if (response.code === 401 || response.code === 403) {
-      await session.send('认证失败，请重新登录')
-      return true
-    }
-    
-    if (response.code === 404) {
-      await session.send('未找到相关数据')
-      return true
-    }
-    
     await session.send(`操作失败: ${errorMsg}`)
     return true
   }

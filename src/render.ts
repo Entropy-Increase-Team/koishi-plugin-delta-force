@@ -98,10 +98,18 @@ export class Renderer {
     const resPath = this.resourcesPath.replace(/\\/g, '/')
     const templateData = {
       ...data,
-      _res_path: `file:///${resPath}/`,
+      // _res_path 不带末尾斜杠，模板中会自动添加
+      _res_path: `file:///${resPath}`,
       // 布局路径 (与云崽版保持一致)
       commonLayout: path.join(this.templatesPath, 'common', 'common.html'),
       defaultLayout: path.join(this.resourcesPath, 'common', 'layout', 'default.html'),
+      // 系统变量 (与云崽版保持一致)
+      sys: {
+        scale: 'style=transform:scale(1)',
+        copyright: 'Created By Koishi & Delta-Force-Plugin',
+        ...(data.sys as Record<string, unknown> || {})
+      },
+      copyright: (data as Record<string, unknown>).copyright || 'Created By Koishi & Delta-Force-Plugin',
     }
 
     this.ctx.logger('delta-force').info('渲染模板:', htmlPath)
@@ -167,13 +175,24 @@ export class Renderer {
 
     try {
       // 构建模板路径
-      const templateDir = path.join(this.templatesPath, templateName)
-      const htmlPath = path.join(templateDir, `${templateName}.html`)
+      // 特殊处理：help 模板在 resources/help/index.html，而不是 Template/help/help.html
+      let templateDir: string
+      let htmlPath: string
+      
+      if (templateName === 'help') {
+        // 帮助模板使用 resources/help/index.html
+        templateDir = path.join(this.resourcesPath, 'help')
+        htmlPath = path.join(templateDir, 'index.html')
+      } else {
+        // 其他模板使用 Template/{name}/{name}.html
+        templateDir = path.join(this.templatesPath, templateName)
+        htmlPath = path.join(templateDir, `${templateName}.html`)
+      }
 
       if (!fs.existsSync(htmlPath)) {
         return {
           success: false,
-          error: `模板文件不存在: ${templateName}`,
+          error: `模板文件不存在: ${templateName} (${htmlPath})`,
         }
       }
 
@@ -191,7 +210,7 @@ export class Renderer {
 
       // 将 HTML 写入临时文件，然后用 file:// 协议加载
       // 这样可以让 Puppeteer 正确加载 file:// 协议的图片资源
-      const tempHtmlPath = path.join(this.templatesPath, templateName, `_temp_${Date.now()}.html`)
+      const tempHtmlPath = path.join(templateDir, `_temp_${Date.now()}.html`)
       fs.writeFileSync(tempHtmlPath, html, 'utf-8')
 
       try {
