@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-delta-force",
   "description": "三角洲行动游戏数据查询插件",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [

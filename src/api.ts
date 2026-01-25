@@ -320,7 +320,8 @@ export class ApiService {
     frameworkToken: string,
     type?: string,
     isShowNullFriend: boolean = true,
-    date?: string
+    date?: string,
+    showExtra: boolean = false
   ): Promise<ApiResponse> {
     const params: Record<string, string> = { 
       frameworkToken,
@@ -328,6 +329,7 @@ export class ApiService {
     }
     if (type) params.type = type
     if (date) params.date = date
+    if (showExtra) params.showExtra = String(showExtra)
     return this.request('GET', '/df/person/weeklyRecord', params)
   }
 

@@ -104,11 +104,23 @@ const commandRules: CommandRule[] = [
     command: 'df.daily',
     args: (match) => match[2]?.trim() || ''
   },
+  // 开启/关闭日报推送: ^\^(开启|关闭)日报推送$
+  {
+    pattern: /^\^(开启|关闭)日报推送$/i,
+    command: 'df.daily.push',
+    args: (match) => match[1] === '开启' ? 'on' : 'off'
+  },
   // 周报: ^\^(周报|weekly)\s*(.*)$
   {
     pattern: /^\^(周报|weekly)\s*(.*)$/i,
     command: 'df.weekly',
     args: (match) => match[2]?.trim() || ''
+  },
+  // 开启/关闭周报推送: ^\^(开启|关闭)周报推送$
+  {
+    pattern: /^\^(开启|关闭)周报推送$/i,
+    command: 'df.weekly.push',
+    args: (match) => match[1] === '开启' ? 'on' : 'off'
   },
   // 战绩: ^\^(战绩|record)\s*(.*)$
   {
@@ -161,6 +173,12 @@ const commandRules: CommandRule[] = [
   {
     pattern: /^\^(特勤处状态|placestatus)$/i,
     command: 'df.placestatus'
+  },
+  // 开启/关闭特勤处推送: ^\^(开启|关闭)特勤处推送$
+  {
+    pattern: /^\^(开启|关闭)特勤处推送$/i,
+    command: 'df.place.push',
+    args: (match) => match[1] === '开启' ? 'on' : 'off'
   },
   // 封号记录: ^\^(封号记录|违规记录|违规历史|封号历史)$
   {
@@ -244,6 +262,12 @@ const commandRules: CommandRule[] = [
   {
     pattern: /^\^(每日密码|今日密码|密码)$/i,
     command: 'df.password'
+  },
+  // 开启/关闭每日密码推送: ^\^(开启|关闭)每日密码推送$
+  {
+    pattern: /^\^(开启|关闭)每日密码推送$/i,
+    command: 'df.password.push',
+    args: (match) => match[1] === '开启' ? 'on' : 'off'
   },
 
   // ==================== 帮助 ====================

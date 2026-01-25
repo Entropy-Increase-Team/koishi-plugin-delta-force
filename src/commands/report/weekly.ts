@@ -1,4 +1,4 @@
-import { Context } from 'koishi'
+import { Context, h } from 'koishi'
 import { ApiService } from '../../api'
 import { DataManager } from '../../data'
 import { getActiveToken } from '../../database'
@@ -31,6 +31,7 @@ export function registerWeeklyCommands(
       // 注意：从 middleware 执行时，参数可能是单个字符串，需要拆分
       let mode = ''
       let date = ''
+      let showExtra = false
       const allArgs: string[] = []
       for (const arg of args) {
         // 将每个参数按空格拆分（处理 middleware 传递的情况）
@@ -42,16 +43,20 @@ export function registerWeeklyCommands(
           mode = 'sol'
         } else if (['全面', '全面战场', '战场', 'mp'].includes(arg)) {
           mode = 'mp'
+        } else if (['详细', 'detail', 'extra'].includes(arg)) {
+          showExtra = true
         } else if (/^\d{8}$/.test(arg)) {
           // 8位数字作为日期，如 20260111
           date = arg
         }
       }
 
+      logger.info(`[weekly] 解析参数: mode=${mode}, date=${date}, showExtra=${showExtra}, allArgs=${JSON.stringify(allArgs)}`)
       await session.send('正在查询周报数据...')
       try {
-        const res = await api.getWeeklyReport(token, mode, true, date)
-        logger.debug(`[weekly] API 响应: ${JSON.stringify(res).slice(0, 500)}`)
+        const res = await api.getWeeklyReport(token, mode, true, date, showExtra)
+        logger.info(`[weekly] API 响应: ${JSON.stringify(res).slice(0, 500)}`)
+        logger.info(`[weekly] reportDm 存在: ${!!(res.data as { reportDm?: unknown })?.reportDm}`)
         
         if (await handleApiError(res, session)) return
 
@@ -275,8 +280,429 @@ export function registerWeeklyCommands(
           }
         }
 
-        // 渲染模板
-        return renderer.renderToMessage('weeklyReport', templateData)
+        // 处理 reportDm 补充数据（与云崽版保持一致）
+        const reportDm = (res.data as { reportDm?: ReportDmData })?.reportDm
+        if (reportDm) {
+          // 处理好友 TOP10 数据（烽火数据）
+          if (reportDm.wbn?.friends && Array.isArray(reportDm.wbn.friends)) {
+            const friendsData = reportDm.wbn.friends
+            // 按 total_gained_price 排序，取前10名
+            const sortedFriends = friendsData
+              .filter(f => f.total_gained_price && Number(f.total_gained_price) > 0)
+              .sort((a, b) => Number(b.total_gained_price) - Number(a.total_gained_price))
+              .slice(0, 10)
+
+            if (sortedFriends.length > 0) {
+              // 获取好友的昵称和头像
+              const friendOpenIDs = sortedFriends.map(f => f.Friendopenid)
+              const friendNicknameMap = new Map<string, string>()
+              const friendAvatarMap = new Map<string, string>()
+
+              const friendPromises = friendOpenIDs.map(openid =>
+                api.getFriendInfo(token, openid)
+              )
+              const friendResults = await Promise.allSettled(friendPromises)
+
+              friendResults.forEach((result, index) => {
+                const openid = friendOpenIDs[index]
+                if (result.status === 'fulfilled' && result.value?.success && result.value.data) {
+                  const data = result.value.data as { charac_name?: string; picurl?: string }
+                  if (data.charac_name) {
+                    friendNicknameMap.set(openid, data.charac_name)
+                  }
+                  if (data.picurl) {
+                    let avatarUrl = data.picurl
+                    if (/^[0-9]+$/.test(avatarUrl)) {
+                      avatarUrl = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${avatarUrl}.webp`
+                    } else {
+                      try {
+                        avatarUrl = decodeURIComponent(avatarUrl)
+                      } catch {
+                        // 解码失败，使用原始 URL
+                      }
+                    }
+                    friendAvatarMap.set(openid, avatarUrl)
+                  }
+                }
+              })
+
+              // 收集所有物品ID
+              const allItemIDs = new Set<string>()
+              sortedFriends.forEach(friend => {
+                if (friend.CarryOut_highprice_list && Array.isArray(friend.CarryOut_highprice_list)) {
+                  friend.CarryOut_highprice_list.forEach(item => {
+                    if (item.itemid) {
+                      allItemIDs.add(String(item.itemid))
+                    }
+                  })
+                }
+                if (friend.CarryOut_top2_highprice_list && Array.isArray(friend.CarryOut_top2_highprice_list)) {
+                  friend.CarryOut_top2_highprice_list.forEach(item => {
+                    if (item.itemid) {
+                      allItemIDs.add(String(item.itemid))
+                    }
+                  })
+                }
+              })
+
+              // 获取物品名称
+              const itemNameMap: Record<string, string> = {}
+              if (allItemIDs.size > 0) {
+                try {
+                  const itemIDsArray = Array.from(allItemIDs)
+                  const itemIDsString = itemIDsArray.join(',')
+                  const itemRes = await api.searchObject('', itemIDsString)
+
+                  if (itemRes && itemRes.success && itemRes.data) {
+                    const keywords = (itemRes.data as { keywords?: Array<{ objectID?: string; name?: string; objectName?: string }> }).keywords
+                    if (keywords && Array.isArray(keywords)) {
+                      keywords.forEach(item => {
+                        if (item.objectID) {
+                          const id = String(item.objectID)
+                          const name = item.name || item.objectName
+                          if (name) {
+                            itemNameMap[id] = name
+                          }
+                        }
+                      })
+                    }
+                  }
+                } catch (error) {
+                  logger.warn('[weekly] 获取物品名称失败:', error)
+                }
+              }
+
+              // 格式化价格
+              const formatPrice = (price: number | string | undefined): string => {
+                if (!price || isNaN(Number(price))) return '0'
+                const numPrice = Number(price)
+                if (numPrice >= 1000000) {
+                  return (numPrice / 1000000).toFixed(2) + 'M'
+                } else if (numPrice >= 1000) {
+                  return (numPrice / 1000).toFixed(1) + 'K'
+                } else {
+                  return numPrice.toLocaleString()
+                }
+              }
+
+              templateData.topFriends = sortedFriends.map((friend, index) => {
+                const friendName = friendNicknameMap.get(friend.Friendopenid) || `...${String(friend.Friendopenid).slice(-6)}`
+                const friendAvatar = friendAvatarMap.get(friend.Friendopenid) || ''
+
+                // 处理物品列表
+                const items: Array<{
+                  itemid: string
+                  name: string
+                  imageUrl: string
+                  price: string
+                  rawPrice: number
+                  inum: number
+                  quality: number
+                }> = []
+                const addedItemIds = new Set<string>()
+
+                // 优先显示 CarryOut_highprice_list
+                if (friend.CarryOut_highprice_list && Array.isArray(friend.CarryOut_highprice_list)) {
+                  friend.CarryOut_highprice_list.forEach(item => {
+                    if (item.itemid && !addedItemIds.has(String(item.itemid))) {
+                      const itemId = String(item.itemid)
+                      const rawPrice = Number(item.iPrice || 0)
+                      addedItemIds.add(itemId)
+                      items.push({
+                        itemid: itemId,
+                        name: itemNameMap[itemId] || `物品${item.itemid}`,
+                        imageUrl: `https://playerhub.df.qq.com/playerhub/60004/object/${item.itemid}.png`,
+                        price: formatPrice(rawPrice),
+                        rawPrice: rawPrice,
+                        inum: item.inum || 1,
+                        quality: item.quality || 0
+                      })
+                    }
+                  })
+                }
+
+                // 补充显示 CarryOut_top2_highprice_list
+                if (friend.CarryOut_top2_highprice_list && Array.isArray(friend.CarryOut_top2_highprice_list)) {
+                  friend.CarryOut_top2_highprice_list.forEach(item => {
+                    if (item.itemid && !addedItemIds.has(String(item.itemid)) && items.length < 3) {
+                      const itemId = String(item.itemid)
+                      const rawPrice = Number(item.iPrice || 0)
+                      addedItemIds.add(itemId)
+                      items.push({
+                        itemid: itemId,
+                        name: itemNameMap[itemId] || `物品${item.itemid}`,
+                        imageUrl: `https://playerhub.df.qq.com/playerhub/60004/object/${item.itemid}.png`,
+                        price: formatPrice(rawPrice),
+                        rawPrice: rawPrice,
+                        inum: item.inum || 1,
+                        quality: item.quality || 0
+                      })
+                    }
+                  })
+                }
+
+                // 按价格从高到低排序
+                items.sort((a, b) => b.rawPrice - a.rawPrice)
+
+                return {
+                  rank: index + 1,
+                  name: friendName,
+                  avatar: friendAvatar,
+                  total_gained_price: Number(friend.total_gained_price || 0).toLocaleString(),
+                  total_GainedPrice: formatPrice(friend.total_GainedPrice || 0),
+                  max_GainedPrice: formatPrice(friend.max_GainedPrice || 0),
+                  win_num: friend.win_num || 0,
+                  lose_num: friend.lose_num || 0,
+                  intimacy: friend.FriendIntimacy || 0,
+                  items: items.slice(0, 3)
+                }
+              })
+            } else {
+              templateData.topFriends = []
+            }
+          } else {
+            templateData.topFriends = []
+          }
+
+          // 处理 report1 - 烽火地带收益统计
+          if (reportDm.report1) {
+            templateData.report1 = {
+              total_sell_price: Number(reportDm.report1.total_sell_price || 0).toLocaleString()
+            }
+          }
+
+          // 处理 report3 - 全面战场详细统计
+          if (reportDm.report3) {
+            const r3 = reportDm.report3
+            const maxScoreMapId = r3.max_score_mapid ? dataManager.getMapName(r3.max_score_mapid) : '无'
+            const maxScoreOperator = r3.max_mpmatch_num_deployarmedforcetype ? dataManager.getOperatorName(r3.max_mpmatch_num_deployarmedforcetype) : '无'
+            const maxVehicleOperator = r3.max_vehicle_usedtime_vehicleid ? `载具ID: ${r3.max_vehicle_usedtime_vehicleid}` : '无'
+
+            templateData.report3 = {
+              max_mpmatch_num: r3.max_mpmatch_num || 0,
+              max_vehicle_usedtime: r3.max_vehicle_usedtime ? `${Math.floor(Number(r3.max_vehicle_usedtime) / 60)}分钟` : '0',
+              total_killvehicle: r3.total_killvehicle || 0,
+              total_vehicle_usedtime: r3.total_vehicle_usedtime ? `${Math.floor(Number(r3.total_vehicle_usedtime) / 60)}分钟` : '0',
+              total_vehicle_inum: r3.total_vehicle_inum || 0,
+              max_score_killnum: r3.max_score_killnum || 0,
+              max_score_death: r3.max_score_death || 0,
+              win_mpmatch_num: r3.win_mpmatch_num || 0,
+              max_score_assist: r3.max_score_assist || 0,
+              total_mpmatch_num: r3.total_mpmatch_num || 0,
+              max_score_mapid: maxScoreMapId,
+              max_score_mapid_image: r3.max_score_mapid ? dataManager.getMapImagePath(maxScoreMapId, 'mp') : null,
+              max_mpmatch_num_Rescue: r3.max_mpmatch_num_Rescue || 0,
+              max_mpmatch_num_deployarmedforcetype: maxScoreOperator,
+              max_mpmatch_num_deployarmedforcetype_image: r3.max_mpmatch_num_deployarmedforcetype ? dataManager.getOperatorImagePath(maxScoreOperator) : null,
+              max_score_dteventtime: r3.max_score_dteventtime || '-',
+              total_killnum: r3.total_killnum || 0,
+              max_vehicle_usedtime_vehicleid: maxVehicleOperator,
+              total_score: Number(r3.total_score || 0).toLocaleString(),
+              max_mpmatch_num_GameTime: r3.max_mpmatch_num_GameTime ? `${Math.floor(Number(r3.max_mpmatch_num_GameTime) / 3600)}小时${Math.floor((Number(r3.max_mpmatch_num_GameTime) % 3600) / 60)}分钟` : '0',
+              total_vehicle_killnum: r3.total_vehicle_killnum || 0,
+              max_vehicle_usedtime_killplayer: r3.max_vehicle_usedtime_killplayer || 0,
+              max_mpmatch_num_Score: Number(r3.max_mpmatch_num_Score || 0).toLocaleString()
+            }
+          }
+
+          // 处理 report4 - 全面战场队友统计
+          if (reportDm.report4) {
+            const r4 = reportDm.report4
+            const bestTeammateId = r4.max_mpwinnum_memberid
+            const worstTeammateId = r4.max_mplosenum_memberid
+
+            let bestTeammateName = '未知'
+            let bestTeammateAvatar = ''
+            let worstTeammateName = '未知'
+            let worstTeammateAvatar = ''
+
+            // 并行获取两个队友的信息
+            const teammatePromises: Promise<{ type: string; info: unknown }>[] = []
+            if (bestTeammateId) {
+              teammatePromises.push(
+                api.getFriendInfo(token, bestTeammateId)
+                  .then(info => ({ type: 'best', info }))
+                  .catch(() => ({ type: 'best', info: null }))
+              )
+            } else {
+              teammatePromises.push(Promise.resolve({ type: 'best', info: null }))
+            }
+
+            if (worstTeammateId) {
+              teammatePromises.push(
+                api.getFriendInfo(token, worstTeammateId)
+                  .then(info => ({ type: 'worst', info }))
+                  .catch(() => ({ type: 'worst', info: null }))
+              )
+            } else {
+              teammatePromises.push(Promise.resolve({ type: 'worst', info: null }))
+            }
+
+            const teammateResults = await Promise.all(teammatePromises)
+
+            teammateResults.forEach(result => {
+              const info = result.info as { success?: boolean; data?: { charac_name?: string; picurl?: string } } | null
+              if (result.type === 'best' && info?.success && info.data) {
+                const data = info.data
+                bestTeammateName = data.charac_name || '未知'
+                if (data.picurl) {
+                  let avatarUrl = data.picurl
+                  if (/^[0-9]+$/.test(avatarUrl)) {
+                    avatarUrl = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${avatarUrl}.webp`
+                  } else {
+                    try {
+                      avatarUrl = decodeURIComponent(avatarUrl)
+                    } catch {
+                      // 解码失败
+                    }
+                  }
+                  bestTeammateAvatar = avatarUrl
+                }
+              } else if (result.type === 'worst' && info?.success && info.data) {
+                const data = info.data
+                worstTeammateName = data.charac_name || '未知'
+                if (data.picurl) {
+                  let avatarUrl = data.picurl
+                  if (/^[0-9]+$/.test(avatarUrl)) {
+                    avatarUrl = `https://wegame.gtimg.com/g.2001918-r.ea725/helper/df/skin/${avatarUrl}.webp`
+                  } else {
+                    try {
+                      avatarUrl = decodeURIComponent(avatarUrl)
+                    } catch {
+                      // 解码失败
+                    }
+                  }
+                  worstTeammateAvatar = avatarUrl
+                }
+              }
+            })
+
+            const bestOperator = r4.max_mpwinnum_member_deployarmedforcetype ? dataManager.getOperatorName(r4.max_mpwinnum_member_deployarmedforcetype) : '无'
+            const worstOperator = r4.max_mplosenum_member_deployarmedforcetype ? dataManager.getOperatorName(r4.max_mplosenum_member_deployarmedforcetype) : '无'
+
+            templateData.report4 = {
+              best_teammate: {
+                name: bestTeammateName,
+                avatar: bestTeammateAvatar,
+                intimacy: r4.max_mpwinnum_member_friendintimacy || 0,
+                win_num: r4.max_mpwinnum_player_winmun || 0,
+                lose_num: r4.max_mpwinnum_player_wlosemun || 0,
+                kill_num: r4.max_mpwinnum_player_killnum || 0,
+                assist: r4.max_mpwinnum_player_assist || 0,
+                score: Number(r4.max_mpwinnum_player_score || 0).toLocaleString(),
+                operator: bestOperator,
+                operator_image: r4.max_mpwinnum_member_deployarmedforcetype ? dataManager.getOperatorImagePath(bestOperator) : null
+              },
+              worst_teammate: {
+                name: worstTeammateName,
+                avatar: worstTeammateAvatar,
+                intimacy: r4.max_mplosenum_member_friendintimacy || 0,
+                win_num: r4.max_mplosenum_player_winmun || 0,
+                lose_num: r4.max_mplosenum_player_wlosemun || 0,
+                kill_num: r4.max_mplosenum_player_killnum || 0,
+                assist: r4.max_mplosenum_player_assist || 0,
+                score: Number(r4.max_mplosenum_player_score || 0).toLocaleString(),
+                operator: worstOperator,
+                operator_image: r4.max_mplosenum_member_deployarmedforcetype ? dataManager.getOperatorImagePath(worstOperator) : null
+              }
+            }
+          }
+
+          // 处理 bk - 全面战场载具统计
+          if (reportDm.bk) {
+            const bk = reportDm.bk
+            if (bk.mp_vehicleid_list && Array.isArray(bk.mp_vehicleid_list)) {
+              templateData.bk = {
+                vehicles: bk.mp_vehicleid_list.map(v => ({
+                  vehicleid: v.vehicleid,
+                  inum: v.inum || 0,
+                  vehicle_name: `载具${v.vehicleid}`
+                })).sort((a, b) => b.inum - a.inum),
+                avg_score: Number(bk.mp_avgscore || 0).toFixed(1),
+                support_count: bk.mp_supportcount || 0,
+                support_details: {
+                  '1001012': bk.mp_supportcount_1001012 || 0,
+                  '1001011': bk.mp_supportcount_1001011 || 0,
+                  '1001014': bk.mp_supportcount_1001014 || 0,
+                  '1001015': bk.mp_supportcount_1001015 || 0
+                }
+              }
+            } else {
+              templateData.bk = {
+                vehicles: [],
+                avg_score: '0',
+                support_count: 0,
+                support_details: {}
+              }
+            }
+          }
+        } else {
+          templateData.topFriends = []
+        }
+
+        // 渲染模板（与云崽版保持一致：两个模式都有数据时分开渲染）
+        if (mode === 'sol') {
+          if (!templateData.solData || (templateData.solData as { isEmpty?: boolean }).isEmpty) {
+            return '暂无烽火地带周报数据，不打两把吗？'
+          }
+          return renderer.renderToMessage('weeklyReport', {
+            ...templateData,
+            mpData: null
+          })
+        }
+
+        if (mode === 'mp') {
+          if (!templateData.mpData || (templateData.mpData as { isEmpty?: boolean }).isEmpty) {
+            return '暂无全面战场周报数据，不打两把吗？'
+          }
+          return renderer.renderToMessage('weeklyReport', {
+            ...templateData,
+            solData: null
+          })
+        }
+
+        // 未指定模式时
+        const hasSolData = templateData.solData && !(templateData.solData as { isEmpty?: boolean }).isEmpty
+        const hasMpData = templateData.mpData && !(templateData.mpData as { isEmpty?: boolean }).isEmpty
+
+        if (!hasSolData && !hasMpData) {
+          return '暂无周报数据，不打两把吗？'
+        }
+
+        // 两个模式都有数据时，分开渲染并连续发送（与云崽版保持一致）
+        if (hasSolData && hasMpData) {
+          // 渲染烽火地带
+          const solImage = await renderer.renderToMessage('weeklyReport', {
+            ...templateData,
+            mpData: null
+          })
+          if (solImage && typeof solImage !== 'string') {
+            await session.send(h('message', [h.text('【烽火地带周报】\n'), solImage]))
+          }
+
+          // 渲染全面战场
+          const mpImage = await renderer.renderToMessage('weeklyReport', {
+            ...templateData,
+            solData: null
+          })
+          if (mpImage && typeof mpImage !== 'string') {
+            await session.send(h('message', [h.text('【全面战场周报】\n'), mpImage]))
+          }
+          return
+        }
+
+        // 只有一个模式有数据
+        if (hasSolData) {
+          return renderer.renderToMessage('weeklyReport', {
+            ...templateData,
+            mpData: null
+          })
+        } else {
+          return renderer.renderToMessage('weeklyReport', {
+            ...templateData,
+            solData: null
+          })
+        }
       } catch (error) {
         logger.error('查询周报失败:', error)
         return `查询失败: ${(error as Error).message}`
@@ -427,8 +853,9 @@ function parseAssetTrend(totalPrice?: string): AssetTrend | null {
   const minPrice = Math.min(...allPrices)
   const priceRange = maxPrice - minPrice || 1
 
-  const chartWidth = 600
-  const chartHeight = 120
+  // 资产趋势图加宽
+  const chartWidth = 2000
+  const chartHeight = 200
   const padding = { top: 20, right: 10, bottom: 30, left: 10 }
   const plotWidth = chartWidth - padding.left - padding.right
   const plotHeight = chartHeight - padding.top - padding.bottom
@@ -670,4 +1097,82 @@ function parseMpTeammates(
       maxScore: (t.Friend_Max_Score || 0).toLocaleString()
     }
   })
+}
+
+// reportDm 数据类型定义（与云崽版保持一致）
+interface ReportDmData {
+  wbn?: {
+    friends?: WbnFriend[]
+  }
+  report1?: {
+    total_sell_price?: number | string
+  }
+  report3?: Report3Data
+  report4?: Report4Data
+  bk?: BkData
+}
+
+interface WbnFriend {
+  Friendopenid: string
+  total_gained_price?: number | string
+  total_GainedPrice?: number | string
+  max_GainedPrice?: number | string
+  win_num?: number
+  lose_num?: number
+  FriendIntimacy?: number
+  CarryOut_highprice_list?: Array<{ itemid?: string | number; iPrice?: number; inum?: number; quality?: number }>
+  CarryOut_top2_highprice_list?: Array<{ itemid?: string | number; iPrice?: number; inum?: number; quality?: number }>
+}
+
+interface Report3Data {
+  max_mpmatch_num?: number
+  max_vehicle_usedtime?: number | string
+  total_killvehicle?: number
+  total_vehicle_usedtime?: number | string
+  total_vehicle_inum?: number
+  max_score_killnum?: number
+  max_score_death?: number
+  win_mpmatch_num?: number
+  max_score_assist?: number
+  total_mpmatch_num?: number
+  max_score_mapid?: string | number
+  max_mpmatch_num_Rescue?: number
+  max_mpmatch_num_deployarmedforcetype?: string | number
+  max_score_dteventtime?: string
+  total_killnum?: number
+  max_vehicle_usedtime_vehicleid?: string | number
+  total_score?: number | string
+  max_mpmatch_num_GameTime?: number | string
+  total_vehicle_killnum?: number
+  max_vehicle_usedtime_killplayer?: number
+  max_mpmatch_num_Score?: number | string
+}
+
+interface Report4Data {
+  max_mpwinnum_memberid?: string
+  max_mplosenum_memberid?: string
+  max_mpwinnum_member_friendintimacy?: number
+  max_mpwinnum_player_winmun?: number
+  max_mpwinnum_player_wlosemun?: number
+  max_mpwinnum_player_killnum?: number
+  max_mpwinnum_player_assist?: number
+  max_mpwinnum_player_score?: number | string
+  max_mpwinnum_member_deployarmedforcetype?: string | number
+  max_mplosenum_member_friendintimacy?: number
+  max_mplosenum_player_winmun?: number
+  max_mplosenum_player_wlosemun?: number
+  max_mplosenum_player_killnum?: number
+  max_mplosenum_player_assist?: number
+  max_mplosenum_player_score?: number | string
+  max_mplosenum_member_deployarmedforcetype?: string | number
+}
+
+interface BkData {
+  mp_vehicleid_list?: Array<{ vehicleid: string | number; inum?: number }>
+  mp_avgscore?: number | string
+  mp_supportcount?: number
+  mp_supportcount_1001012?: number
+  mp_supportcount_1001011?: number
+  mp_supportcount_1001014?: number
+  mp_supportcount_1001015?: number
 }
