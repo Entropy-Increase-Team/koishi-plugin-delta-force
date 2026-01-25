@@ -28,11 +28,16 @@ const commandRules: CommandRule[] = [
       return platform
     }
   },
-  // 角色绑定: ^\^(角色绑定|绑定角色|绑定|bind)\s*([a-zA-Z0-9\-]+)?$
+  // 手动绑定Token: ^\^绑定\s+([a-zA-Z0-9\-]+)$ (必须有token参数)
   {
-    pattern: /^\^(角色绑定|绑定角色|绑定|bind)\s*([a-zA-Z0-9\-]+)?$/i,
-    command: 'df.bind',
-    args: (match) => match[2] || ''
+    pattern: /^\^绑定\s+([a-zA-Z0-9\-]+)$/i,
+    command: 'df.bindtoken',
+    args: (match) => match[1] || ''
+  },
+  // 角色绑定: ^\^(角色绑定|绑定角色|bind)$ (不带token参数)
+  {
+    pattern: /^\^(角色绑定|绑定角色|bind)$/i,
+    command: 'df.bind'
   },
   // 账号列表: ^\^(账号|账号列表|account)$
   {
@@ -83,12 +88,6 @@ const commandRules: CommandRule[] = [
   {
     pattern: /^\^(网页|web|网站)(登陆|登录)$/i,
     command: 'df.weblogin'
-  },
-  // 手动绑定Token: ^\^绑定\s+([a-zA-Z0-9\-]+)$
-  {
-    pattern: /^\^绑定\s+([a-zA-Z0-9\-]+)$/i,
-    command: 'df.bindtoken',
-    args: (match) => match[1] || ''
   },
   // 删除账号: ^\^删除账号\s*(\d+)$
   {

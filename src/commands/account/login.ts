@@ -249,7 +249,7 @@ export function registerLoginCommands(
       }
     })
   
-  // 角色绑定指令
+  // 角色绑定指令（仅绑定游戏角色，不绑定用户）
   ctx.command('df.bind [token:string]', '绑定游戏角色')
     .alias('df.角色绑定')
     .action(async ({ session }, token) => {
