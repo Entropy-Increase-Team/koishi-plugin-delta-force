@@ -98,8 +98,8 @@ export class Renderer {
     const resPath = this.resourcesPath.replace(/\\/g, '/')
     const templateData = {
       ...data,
-      // _res_path 不带末尾斜杠，模板中会自动添加
-      _res_path: `file:///${resPath}`,
+      // _res_path 带末尾斜杠，与模板中的路径拼接保持一致
+      _res_path: `file:///${resPath}/`,
       // 布局路径 (与云崽版保持一致)
       commonLayout: path.join(this.templatesPath, 'common', 'common.html'),
       defaultLayout: path.join(this.resourcesPath, 'common', 'layout', 'default.html'),
