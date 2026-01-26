@@ -1,7 +1,7 @@
 import { Context, h } from 'koishi'
 import { ApiService } from '../../api'
 import { getActiveToken } from '../../database'
-import { handleApiError, getUserDisplayInfo } from '../../utils'
+import { handleApiError } from '../../utils'
 import { Renderer } from '../../render'
 
 // 特勤处设施类型映射
@@ -65,14 +65,6 @@ export function registerPlaceCommands(
     .alias('df.特勤处信息')
     .usage(`支持的设施类型: ${Object.keys(PLACE_TYPE_MAP).join('、')}\n示例:\n  df.place all - 查询所有设施\n  df.place 仓库 - 查询仓库所有等级\n  df.place 仓库 3 - 查询仓库等级3`)
     .action(async ({ session }, type, level) => {
-      const userId = session.userId
-      const platform = session.platform
-
-      const token = await getActiveToken(ctx, userId, platform)
-      if (!token) {
-        return '您尚未登录，请先使用 df.login 登录'
-      }
-
       // 如果没有参数，显示帮助
       if (!type) {
         return [
@@ -96,7 +88,7 @@ export function registerPlaceCommands(
       await session.send('正在查询特勤处信息，请稍候...')
 
       try {
-        const res = await api.getPlaceInfo(token, placeType)
+        const res = await api.getPlaceInfo(placeType)
 
         if (await handleApiError(res, session)) return
 
@@ -140,12 +132,9 @@ export function registerPlaceCommands(
           return '未能查询到任何特勤处设施信息'
         }
 
-        // 获取用户信息（用于模板）
-        const userDisplayInfo = await getUserDisplayInfo(api, token, userId, session.username || '用户')
-
         // 如果指定了类型
         if (placeType) {
-          return await renderPlacesByType(places, placeType, level, relateMap || {}, userDisplayInfo, renderer, session, logger)
+          return await renderPlacesByType(places, placeType, level, relateMap || {}, renderer, session, logger)
         }
 
         // 查询所有类型 - 逐个发送每个类型的图片
@@ -180,9 +169,6 @@ export function registerPlaceCommands(
           const placeTypeName = PLACE_TYPE_NAMES[pType] || pType
 
           const templateData = {
-            userName: userDisplayInfo.userName,
-            userAvatar: userDisplayInfo.userAvatar || userDisplayInfo.qqAvatarUrl,
-            qqAvatarUrl: userDisplayInfo.qqAvatarUrl,
             placeTypeName,
             places: [processedPlace],
           }
@@ -275,13 +261,6 @@ interface PlaceInfo {
   }
 }
 
-// 用户显示信息接口
-interface UserDisplayInfo {
-  userName: string
-  userAvatar: string
-  qqAvatarUrl: string
-}
-
 /**
  * 渲染指定类型的设施信息
  */
@@ -290,7 +269,6 @@ async function renderPlacesByType(
   placeType: string,
   targetLevel: number | undefined,
   relateMap: Record<string, { objectName?: string; pic?: string }>,
-  userDisplayInfo: UserDisplayInfo,
   renderer: Renderer,
   session: { send: (msg: unknown) => Promise<unknown> },
   logger: ReturnType<Context['logger']>
@@ -334,9 +312,6 @@ async function renderPlacesByType(
     const processedPlace = processPlace(place, relateMap)
 
     const templateData = {
-      userName: userDisplayInfo.userName,
-      userAvatar: userDisplayInfo.userAvatar || userDisplayInfo.qqAvatarUrl,
-      qqAvatarUrl: userDisplayInfo.qqAvatarUrl,
       placeTypeName: typeName,
       places: [processedPlace],
     }
@@ -357,9 +332,6 @@ async function renderPlacesByType(
     const processedPlace = processPlace(place, relateMap)
 
     const templateData = {
-      userName: userDisplayInfo.userName,
-      userAvatar: userDisplayInfo.userAvatar || userDisplayInfo.qqAvatarUrl,
-      qqAvatarUrl: userDisplayInfo.qqAvatarUrl,
       placeTypeName: typeName,
       places: [processedPlace],
     }

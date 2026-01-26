@@ -368,9 +368,9 @@ export class ApiService {
     return this.request('GET', '/df/place/status', { frameworkToken })
   }
 
-  /** 获取特勤处信息 */
-  async getPlaceInfo(frameworkToken: string, place?: string): Promise<ApiResponse> {
-    const params: Record<string, string> = { frameworkToken }
+  /** 获取特勤处信息（不需要登录） */
+  async getPlaceInfo(place?: string): Promise<ApiResponse> {
+    const params: Record<string, string> = {}
     if (place) params.place = place
     return this.request('GET', '/df/place/info', params)
   }
