@@ -150,8 +150,7 @@ export function registerPersonalDataCommands(
             const mapImage = dataManager.getMapImagePath(mapName, 'sol')
             const baseMapName = mapName.replace(/-?(常规|机密|绝密|水淹|适应)$/, '')
             return {
-              mapID: map.mapID,
-              totalCount: map.totalCount as number || 0,
+              ...map,  // 保留原始 API 字段（包括 leaveCount）
               mapName,
               baseMapName,
               mapImage
@@ -159,19 +158,19 @@ export function registerPersonalDataCommands(
           })
 
           // 按基础地图名分组
-          const mapGroups: Record<string, typeof solMapListRaw> = {}
+          const mapGroups: Record<string, Array<Record<string, unknown>>> = {}
           solMapListRaw.forEach(map => {
-            if (!mapGroups[map.baseMapName]) {
-              mapGroups[map.baseMapName] = []
+            if (!mapGroups[map.baseMapName as string]) {
+              mapGroups[map.baseMapName as string] = []
             }
-            mapGroups[map.baseMapName].push(map)
+            mapGroups[map.baseMapName as string].push(map)
           })
 
           let solMapList = mapOrder
             .filter(baseName => mapGroups[baseName] && mapGroups[baseName].length > 0)
             .map(baseName => {
               const maps = mapGroups[baseName]
-              maps.sort((a, b) => (b.totalCount as number || 0) - (a.totalCount as number || 0))
+              maps.sort((a, b) => ((b.totalCount as number) || 0) - ((a.totalCount as number) || 0))
               return {
                 baseMapName: baseName,
                 maps: maps
@@ -179,8 +178,8 @@ export function registerPersonalDataCommands(
             })
 
           // 合并单个地图组
-          const resultList: typeof solMapList = []
-          let pendingSingleGroups: typeof solMapList = []
+          const resultList: Array<{ baseMapName: string; maps: Array<Record<string, unknown>> }> = []
+          let pendingSingleGroups: Array<{ baseMapName: string; maps: Array<Record<string, unknown>> }> = []
 
           const mergePendingGroups = () => {
             if (pendingSingleGroups.length > 1) {
@@ -238,28 +237,26 @@ export function registerPersonalDataCommands(
           // 处理大红收藏
           const solRedCollection = ((solData.redCollectionDetail || []) as Array<Record<string, unknown>>)
             .map(item => ({
-              objectID: item.objectID,
+              ...item,  // 保留原始 API 字段（包括 count）
               objectName: objectNameMap[String(item.objectID)] || (item.objectName as string) || `物品(${item.objectID})`,
               imageUrl: `https://playerhub.df.qq.com/playerhub/60004/object/${item.objectID}.png`,
-              price: item.price as number || 0,
               priceFormatted: formatPrice(item.price as number)
-            }))
-            .sort((a, b) => b.price - a.price)
+            }) as Record<string, unknown>)
+            .sort((a, b) => ((b.price as number) || 0) - ((a.price as number) || 0))
             .slice(0, 10)
 
           // 处理武器列表
           const solGunPlayList = ((solData.gunPlayList || []) as Array<Record<string, unknown>>)
             .map(weapon => ({
-              objectID: weapon.objectID,
+              ...weapon,  // 保留原始 API 字段
               weaponName: objectNameMap[String(weapon.objectID)] || `武器(${weapon.objectID})`,
               imageUrl: `https://playerhub.df.qq.com/playerhub/60004/object/${weapon.objectID}.png`,
-              totalPrice: weapon.totalPrice as number || 0,
               totalPriceFormatted: weapon.totalPrice ? ((weapon.totalPrice as number) / 1000000).toFixed(2) + 'M' : '-',
               escapeRate: (weapon.fightCount as number) > 0 
                 ? (((weapon.escapeCount as number) / (weapon.fightCount as number)) * 100).toFixed(1) + '%' 
                 : '-'
-            }))
-            .sort((a, b) => b.totalPrice - a.totalPrice)
+            }) as Record<string, unknown>)
+            .sort((a, b) => ((b.totalPrice as number) || 0) - ((a.totalPrice as number) || 0))
             .slice(0, 10)
 
           templateData.solDetail = {
@@ -294,13 +291,12 @@ export function registerPersonalDataCommands(
               const mapName = dataManager.getMapName(map.mapID as string)
               const mapImage = dataManager.getMapImagePath(mapName, 'mp')
               return {
-                mapID: map.mapID,
-                totalCount: map.totalCount as number || 0,
+                ...map,  // 保留原始 API 字段（包括 leaveCount）
                 mapName,
                 mapImage
-              }
+              } as Record<string, unknown>
             })
-            .sort((a, b) => b.totalCount - a.totalCount)
+            .sort((a, b) => ((b.totalCount as number) || 0) - ((a.totalCount as number) || 0))
             .slice(0, 10)
 
           const formatMPGameTime = (minutes: number) => {
