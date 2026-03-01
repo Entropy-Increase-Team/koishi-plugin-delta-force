@@ -302,10 +302,6 @@ function getMapImageRelativePath(mapName: string, mode: 'sol' | 'mp'): string | 
         difficulty = parts[1].replace(/[（(].*$/, '').trim()
       }
     }
-    // 适应难度使用常规图片
-    if (difficulty === '适应') {
-      difficulty = '常规'
-    }
     return `imgs/map/${prefix}${baseName}-${difficulty}.png`
   }
 }

@@ -648,13 +648,18 @@ export class DataManager {
       // 返回相对路径，供模板与 _res_path 拼接使用
       return `imgs/map/${prefix}${cleanName}.jpg`
     } else {
-      // 烽火地带模式：提取基础地图名称
+      // 烽火地带模式：提取基础地图名称和难度
       let baseName = cleanName
+      let difficulty = '常规'
       if (cleanName.includes('-')) {
-        baseName = cleanName.split('-')[0].trim()
+        const parts = cleanName.split('-')
+        baseName = parts[0].trim()
+        if (parts[1]) {
+          difficulty = parts[1].replace(/[（(].*$/, '').trim()
+        }
       }
       // 返回相对路径，供模板与 _res_path 拼接使用
-      return `imgs/map/${prefix}${baseName}-常规.png`
+      return `imgs/map/${prefix}${baseName}-${difficulty}.png`
     }
   }
 }
