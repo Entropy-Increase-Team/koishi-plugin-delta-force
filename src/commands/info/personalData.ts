@@ -32,7 +32,7 @@ export function registerPersonalDataCommands(
 
       // 解析参数
       let mode = ''
-      let season: string | number = 7
+      let season: string | number = 8
       
       if (args) {
         const argList = args.split(' ').filter(Boolean)

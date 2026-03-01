@@ -1,15 +1,35 @@
 import { Context, h } from 'koishi'
+import { resolve } from 'path'
+import { writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from 'fs'
 import { ApiService } from '../../api'
+import { Config } from '../../config'
 import { handleApiError, sleep } from '../../utils'
+
+// TTS语音缓存（用户ID -> 语音信息）
+interface TtsCacheEntry {
+  audio_url: string
+  filename: string
+  localPath: string
+  timestamp: number
+}
+const ttsCache = new Map<string, TtsCacheEntry>()
+const TTS_CACHE_TTL = 5 * 60 * 1000 // 5分钟
 
 /**
  * 注册TTS语音合成相关命令
  */
 export function registerTtsCommands(
   ctx: Context,
+  config: Config,
   api: ApiService
 ) {
   const logger = ctx.logger('delta-force')
+
+  // TTS缓存目录
+  const ttsCacheDir = resolve(ctx.baseDir, 'cache', 'delta-force', 'tts')
+  if (!existsSync(ttsCacheDir)) {
+    mkdirSync(ttsCacheDir, { recursive: true })
+  }
 
   // TTS状态
   ctx.command('df.tts.status', '查看TTS服务状态')
@@ -180,6 +200,12 @@ export function registerTtsCommands(
       }
 
       try {
+        // 检查TTS权限
+        const permCheck = checkTtsPermission(config, session)
+        if (!permCheck.allowed) {
+          return permCheck.message
+        }
+
         // 解析参数
         const parseResult = await parseTtsParams(args, api, logger)
 
@@ -192,7 +218,7 @@ export function registerTtsCommands(
         }
 
         // 检查文本长度
-        const maxLength = 800
+        const maxLength = config.tts?.maxLength || 800
         if (parseResult.text.length > maxLength) {
           return `文本过长（${parseResult.text.length}字），最多支持${maxLength}字符`
         }
@@ -250,14 +276,107 @@ export function registerTtsCommands(
           return result.message || '语音合成失败'
         }
 
-        // 发送语音
+        // 下载并缓存到本地
         if (result.audio_url) {
-          await session.send(h.audio(result.audio_url))
+          const localPath = await downloadTtsToCache(
+            ctx, result.audio_url, result.filename || 'tts.wav',
+            session.userId, ttsCacheDir, logger
+          )
+
+          // 保存到缓存 Map（5分钟有效）
+          const cacheKey = `${session.platform}:${session.userId}`
+          // 清理旧缓存
+          const oldEntry = ttsCache.get(cacheKey)
+          if (oldEntry?.localPath) {
+            try { unlinkSync(oldEntry.localPath) } catch (_) {}
+          }
+          ttsCache.set(cacheKey, {
+            audio_url: result.audio_url,
+            filename: result.filename || 'tts.wav',
+            localPath: localPath || '',
+            timestamp: Date.now(),
+          })
+          setTimeout(() => {
+            const cached = ttsCache.get(cacheKey)
+            if (cached && Date.now() - cached.timestamp >= TTS_CACHE_TTL) {
+              if (cached.localPath) {
+                try { unlinkSync(cached.localPath) } catch (_) {}
+              }
+              ttsCache.delete(cacheKey)
+            }
+          }, TTS_CACHE_TTL)
+
+          // 发送语音（优先本地文件）
+          if (localPath) {
+            const fileUrl = `file:///${localPath.replace(/\\/g, '/')}`
+            await session.send(h.audio(fileUrl))
+          } else {
+            await session.send(h.audio(result.audio_url))
+          }
           logger.info(`TTS合成成功: ${result.filename}, 文本: ${parseResult.text.substring(0, 20)}...`)
         }
       } catch (error) {
         logger.error('TTS语音合成失败:', error)
         return '语音合成失败，请稍后重试'
+      }
+    })
+
+  // TTS上传（发送上次合成的语音文件）
+  ctx.command('df.tts.upload', '下载上次合成的TTS语音')
+    .alias('df.tts上传')
+    .action(async ({ session }) => {
+      try {
+        const cacheKey = `${session.platform}:${session.userId}`
+        const cached = ttsCache.get(cacheKey)
+
+        if (!cached) {
+          return '暂无可下载的语音\n请先使用 df.tts 命令合成语音'
+        }
+
+        // 检查是否过期
+        if (Date.now() - cached.timestamp > TTS_CACHE_TTL) {
+          if (cached.localPath) {
+            try { unlinkSync(cached.localPath) } catch (_) {}
+          }
+          ttsCache.delete(cacheKey)
+          return '语音已过期，请重新合成'
+        }
+
+        // 尝试通过 OneBot 发送文件
+        const sess = session as any
+        if (sess.onebot && cached.localPath && existsSync(cached.localPath)) {
+          try {
+            const fileUrl = `file:///${cached.localPath.replace(/\\/g, '/')}`
+            if (session.guildId) {
+              await sess.onebot.sendGroupMsg(session.guildId, [{
+                type: 'record',
+                data: { file: fileUrl }
+              }])
+            } else {
+              await sess.onebot.sendPrivateMsg(session.userId, [{
+                type: 'record',
+                data: { file: fileUrl }
+              }])
+            }
+            logger.info(`TTS文件发送成功: ${cached.filename}`)
+            return
+          } catch (error) {
+            logger.debug('OneBot文件发送失败，回退到语音发送:', error)
+          }
+        }
+
+        // 回退：发送语音格式
+        if (cached.localPath && existsSync(cached.localPath)) {
+          const fileUrl = `file:///${cached.localPath.replace(/\\/g, '/')}`
+          await session.send(h.audio(fileUrl))
+        } else if (cached.audio_url) {
+          await session.send(h.audio(cached.audio_url))
+        } else {
+          return '语音文件不可用，请重新合成'
+        }
+      } catch (error) {
+        logger.error('TTS语音上传失败:', error)
+        return '语音文件上传失败，请稍后重试'
       }
     })
 
@@ -410,6 +529,81 @@ async function parseTtsParams(
   }
 
   return result
+}
+
+/**
+ * 检查TTS功能权限
+ */
+function checkTtsPermission(
+  config: Config,
+  session: any
+): { allowed: boolean; message: string } {
+  const ttsConfig = config.tts
+  if (!ttsConfig) return { allowed: true, message: '' }
+
+  // 检查功能是否启用
+  if (ttsConfig.enabled === false) {
+    return { allowed: false, message: 'TTS功能未启用' }
+  }
+
+  const mode = ttsConfig.mode || 'blacklist'
+  const groupList = (ttsConfig.groupList || []).map(String)
+  const userList = (ttsConfig.userList || []).map(String)
+
+  // 无列表配置时直接放行
+  if (groupList.length === 0 && userList.length === 0) {
+    return { allowed: true, message: '' }
+  }
+
+  const userId = String(session.userId || '')
+  const groupId = session.guildId ? String(session.guildId) : null
+
+  if (mode === 'whitelist') {
+    // 白名单模式：只有列表中的群/用户可用
+    const userAllowed = userList.includes(userId)
+    const groupAllowed = groupId !== null && groupList.includes(groupId)
+    if (!userAllowed && !groupAllowed) {
+      return { allowed: false, message: 'TTS功能未对您开放' }
+    }
+  } else {
+    // 黑名单模式：列表中的群/用户禁用
+    if (userList.includes(userId)) {
+      return { allowed: false, message: 'TTS功能已被禁用' }
+    }
+    if (groupId !== null && groupList.includes(groupId)) {
+      return { allowed: false, message: 'TTS功能在本群已被禁用' }
+    }
+  }
+
+  return { allowed: true, message: '' }
+}
+
+/**
+ * 下载TTS音频到本地缓存目录
+ */
+async function downloadTtsToCache(
+  ctx: Context,
+  audioUrl: string,
+  filename: string,
+  userId: string,
+  cacheDir: string,
+  logger: ReturnType<Context['logger']>
+): Promise<string | null> {
+  try {
+    const response = await ctx.http.get(audioUrl, { responseType: 'arraybuffer' })
+    const buffer = Buffer.from(response)
+
+    const localFilename = `${userId}_${Date.now()}_${filename}`
+    const localPath = resolve(cacheDir, localFilename)
+
+    writeFileSync(localPath, buffer)
+    logger.info(`[TTS] 音频已缓存: ${localPath}`)
+
+    return localPath
+  } catch (error) {
+    logger.error('[TTS] 下载音频到缓存失败:', error)
+    return null
+  }
 }
 
 /**

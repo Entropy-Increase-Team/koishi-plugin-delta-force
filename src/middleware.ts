@@ -455,6 +455,11 @@ const commandRules: CommandRule[] = [
     command: 'df.tts.preset',
     args: (match) => match[1]?.trim() || ''
   },
+  // TTS上传: ^\^tts上传$
+  {
+    pattern: /^\^tts上传$/i,
+    command: 'df.tts.upload'
+  },
   // TTS队列: ^\^tts队列$
   {
     pattern: /^\^tts队列$/i,
@@ -464,6 +469,52 @@ const commandRules: CommandRule[] = [
   {
     pattern: /^\^tts\s+(.+)$/i,
     command: 'df.tts',
+    args: (match) => match[1]?.trim() || ''
+  },
+
+  // ==================== 鼠鼠音乐 ====================
+  // 歌词: ^\^(歌词|鼠鼠歌词|鼠鼠音乐歌词)$
+  {
+    pattern: /^\^(歌词|鼠鼠歌词|鼠鼠音乐歌词)$/i,
+    command: 'df.music.lyrics'
+  },
+  // 鼠鼠语音: ^\^鼠鼠语音$
+  {
+    pattern: /^\^鼠鼠语音$/i,
+    command: 'df.music.voice'
+  },
+  // 音乐缓存状态: ^\^音乐缓存(状态|统计)$
+  {
+    pattern: /^\^音乐缓存(状态|统计)$/i,
+    command: 'df.music.cache'
+  },
+  // 清理音乐缓存: ^\^清理音乐缓存$
+  {
+    pattern: /^\^清理音乐缓存$/i,
+    command: 'df.music.cache.clean'
+  },
+  // 鼠鼠音乐排行榜: ^\^鼠鼠音乐(列表|排行榜)\s*(\d*)$
+  {
+    pattern: /^\^鼠鼠音乐(列表|排行榜)\s*(\d*)$/i,
+    command: 'df.music.rank',
+    args: (match) => match[2]?.trim() || ''
+  },
+  // 鼠鼠歌单: ^\^鼠鼠歌单\s*(.*)$
+  {
+    pattern: /^\^鼠鼠歌单\s*(.*)$/i,
+    command: 'df.music.playlist',
+    args: (match) => match[1]?.trim() || ''
+  },
+  // 点歌: ^\^(点歌|听|听歌|播放)\s*(\d+)$
+  {
+    pattern: /^\^(点歌|听|听歌|播放)\s*(\d+)$/i,
+    command: 'df.music.play',
+    args: (match) => match[2] || ''
+  },
+  // 鼠鼠音乐(搜索/随机): ^\^鼠鼠音乐\s*(.*)$ (放最后，避免被排行榜规则覆盖)
+  {
+    pattern: /^\^鼠鼠音乐\s*(.*)$/i,
+    command: 'df.music',
     args: (match) => match[1]?.trim() || ''
   },
 ]

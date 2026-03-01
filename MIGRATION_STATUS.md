@@ -37,6 +37,7 @@
 | 大红收藏 | `info/redCollection.ts` | ✅ | `redCollection/redCollection.html` |
 | 帮助菜单 | `system/help.ts` | ✅ | `help/index.html` |
 | 娱乐帮助 | `system/help.ts` | ✅ | `help/index.html` |
+| 鼠鼠音乐 | `entertainment/music.ts` | ✅ | `musicList/musicList.html` 搜索/播放/排行榜/歌单/点歌/歌词/缓存 |
 
 ### 🔄 进行中
 
@@ -56,7 +57,7 @@
 | 特勤处状态 | `push/placestatus.js` | 低 | 需 cron 服务 |
 | 广播通知 | `push/Notification.js` | 低 | WebSocket |
 | 定时任务 | `push/Task.js` | 低 | 需 cron 服务 |
-| 音乐功能 | `entertainment/Music.js` | 低 | 鼠鼠音乐 |
+| ~~音乐功能~~ | ~~`entertainment/Music.js`~~ | ~~低~~ | ✅ 已完成 |
 | ~~帮助菜单(渲染版)~~ | ~~`system/Help.js`~~ | ~~低~~ | ✅ 已完成 |
 | WebSocket客户端 | `system/WebSocketClient.js` | 中 | 价格推送等 |
 
@@ -86,6 +87,21 @@
 ---
 
 ## 更新日志
+
+### 2026-03-01
+- 完成鼠鼠音乐全功能迁移 (`entertainment/music.ts`)
+  - 搜索/随机播放: `df.music [keyword]` / `^鼠鼠音乐 [keyword]`
+  - 语音版: `df.music.voice` / `^鼠鼠语音`
+  - 歌词: `df.music.lyrics` / `^歌词`
+  - 排行榜: `df.music.rank [page]` / `^鼠鼠音乐列表`
+  - 歌单: `df.music.playlist [name]` / `^鼠鼠歌单 [name]`
+  - 点歌: `df.music.play [n]` / `^点歌 [n]`
+  - 缓存管理: `df.music.cache` / `df.music.cache.clean`
+  - 音乐卡片: 尝试 OneBot 卡片，失败回退 `h.audio()` 语音
+  - 音乐记忆系统 + 列表记忆系统 (2分钟 TTL)
+  - 本地文件缓存 (MusicCacheManager)
+  - 音乐列表图片渲染 (`musicList/musicList.html`)
+- 登录流程优化: 扫码后自动撤回二维码和提示消息
 
 ### 2026-01-26
 - 完成帮助菜单图片渲染功能 (`system/help.ts` + `help/index.html`)

@@ -42,7 +42,7 @@ import {
 } from './commands/tools'
 
 // Entertainment commands
-import { registerVoiceCommands, registerTtsCommands } from './commands/entertainment'
+import { registerVoiceCommands, registerTtsCommands, registerMusicCommands } from './commands/entertainment'
 
 // System commands
 import { registerHelpCommands } from './commands/system'
@@ -125,7 +125,8 @@ export function apply(ctx: Context, config: Config) {
   
   // 新增 entertainment 模块命令
   registerVoiceCommands(ctx, api, dataManager)
-  registerTtsCommands(ctx, api)
+  registerTtsCommands(ctx, config, api)
+  registerMusicCommands(ctx, config, api, dataManager, renderer)
 
   // 资源管理命令
   registerResourcesCommands(ctx, config, resourceManager)

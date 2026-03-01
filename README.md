@@ -48,54 +48,119 @@ yarn add koishi-plugin-delta-force
 ### 个人类功能
 
 - [x] QQ/微信/WeGame/QQ安全中心 扫码登录
+- [x] Cookie 登录 / QQ OAuth / 微信 OAuth / 网页登录
 - [x] 多账号分组管理（QQ/微信、WeGame、QQ安全中心）
 - [x] 账号切换与解绑
-- [x] 角色绑定
-- [x] 个人信息查询
-- [x] UID 查询
-- [ ] 日报/周报数据
-- [ ] 战绩查询
-- [x] 每日密码查询
-- [ ] 战绩推送
-- [ ] 藏品/资产查询
-- [ ] 货币信息查询
-- [ ] 封号记录查询
-- [ ] 特勤处状态
-- [ ] 日报/周报订阅推送
+- [x] 角色绑定 / 手动绑定 Token
+- [x] 个人信息查询 / UID 查询
+- [x] 日报/周报数据（图片渲染）
+- [x] 战绩查询（图片渲染）
+- [x] 个人数据统计（图片渲染）
+- [x] 藏品/资产查询（图片渲染）
+- [x] 货币信息查询
+- [x] 交易流水查询（图片渲染）
+- [x] 封号/违规记录查询
+- [x] 地图统计（图片渲染）
+- [x] 特勤处信息（图片渲染）
+- [x] 干员查询（图片渲染）
+- [x] 出红记录 / 大红收藏（图片渲染）
+- [ ] 战绩订阅推送
+- [ ] 日报/周报定时推送
 
 ### 工具类功能
 
 - [x] 每日密码查询
-- [ ] 开黑房间创建与管理
-- [ ] 官方文章&公告
-- [ ] 社区改枪码
-- [ ] 物品查询搜索
-- [ ] 物品价格历史
-- [ ] 特勤处利润计算
-- [ ] 三角洲计算器（伤害、维修计算）
+- [x] 开黑房间创建与管理
+- [x] 社区改枪码（上传/列表/详情/收藏/投票）
+- [x] 物品查询搜索
+- [x] 物品价格 / 价格历史 / 利润排行
+- [x] AI 战绩评价
+- [x] 服务器状态查询
+- [x] 静态资源管理（下载/更新/检查）
 
 ### 娱乐类功能
 
-- [ ] 摸金模拟器
-- [ ] 对局模拟器
-- [ ] 随机音频
-- [ ] 随机表情包
+- [x] 随机语音（角色/场景/标签）
+- [x] TTS 语音合成
+- [x] 鼠鼠音乐（搜索/播放/排行榜/歌单/点歌/歌词/缓存）
 
 ## 命令列表
 
+所有命令均支持 `^` 前缀快捷触发（如 `^登录`、`^日报`），与云崽版保持一致。
+
+### 账号管理
+
 | 命令 | 功能 | 示例 |
 | --- | --- | --- |
-| `df.login [平台]` | 登录账号 | `df.login qq` / `df.login wechat` / `df.login wegame` |
-| `df.bind [token]` | 绑定游戏角色 | `df.bind` 或 `df.bind <token>` |
-| `df.info` | 查询个人信息 | 显示昵称、等级、UID、资产等详情 |
+| `df.login [平台]` | 扫码登录 | `df.login qq` / `df.login wechat` / `df.login wegame` |
+| `df.cklogin [cookie]` | Cookie 登录 | `df.cklogin <cookie>` |
+| `df.qqoauth [url]` | QQ OAuth 登录 | `df.qqoauth` |
+| `df.wxoauth [url]` | 微信 OAuth 登录 | `df.wxoauth` |
+| `df.weblogin` | 网页登录 | `df.weblogin` |
+| `df.bind` | 绑定游戏角色 | `df.bind` |
+| `df.bindtoken <token>` | 手动绑定 Token | `df.bindtoken xxx-xxx` |
+| `df.account` | 账号列表 | `df.account` |
+| `df.switch <序号>` | 切换账号 | `df.switch 2` |
+| `df.unbind <序号>` | 解绑账号 | `df.unbind 1` |
+| `df.delete <序号>` | 删除登录数据 | `df.delete 1` |
+
+### 个人数据
+
+| 命令 | 功能 | 示例 |
+| --- | --- | --- |
+| `df.info` | 个人信息 | 显示昵称、等级、UID、资产等 |
 | `df.uid` | 查询 UID | 快速查看角色 UID |
-| `df.account` | 账号管理 | 查看已绑定账号列表 |
-| `df.switch <序号>` | 切换账号 | 在多个绑定账号间切换 |
-| `df.unbind <序号>` | 解绑账号 | 解绑指定账号 |
 | `df.daily [类型]` | 查询日报 | `df.daily` / `df.daily 烽火` / `df.daily 全面` |
-| `df.weekly [类型]` | 查询周报 | `df.weekly` / `df.weekly 烽火` / `df.weekly 全面` |
+| `df.weekly [类型]` | 查询周报 | `df.weekly` / `df.weekly 烽火 20260111` |
 | `df.record [类型] [页码]` | 查询战绩 | `df.record 烽火 1` / `df.record 全面 2` |
+| `df.data [参数]` | 个人数据统计 | `df.data sol` / `df.data mp s8` |
+| `df.money` | 货币信息 | 查询货币详情 |
+| `df.flows [类型] [页码]` | 交易流水 | `df.flows` / `df.flows 设备` |
+| `df.collection [类型]` | 藏品查询 | `df.collection` |
+| `df.redrecord [物品名]` | 出红记录 | `df.redrecord` / `df.redrecord 火麒麟` |
+| `df.redcollection [赛季]` | 大红收藏 | `df.redcollection` / `df.redcollection s8` |
+| `df.mapstats [模式]` | 地图统计 | `df.mapstats` / `df.mapstats 烽火` |
+| `df.ban` | 封号记录 | 查询封号/违规历史 |
+| `df.place [设施] [等级]` | 特勤处信息 | `df.place` / `df.place 原料厂 3` |
+| `df.operator <名称>` | 干员查询 | `df.operator 红狼` |
+
+### 工具功能
+
+| 命令 | 功能 | 示例 |
+| --- | --- | --- |
 | `df.password` | 每日密码 | 查询当日地图密码 |
+| `df.price <名称>` | 价格查询 | `df.price 腾龙` |
+| `df.object <名称>` | 物品搜索 | `df.object M4A1` |
+| `df.ai [模式]` | AI 评价 | `df.ai` / `df.ai mp` |
+| `df.solution.list [武器]` | 改枨码列表 | `df.solution.list M4A1` |
+| `df.room.list [模式]` | 开黑房间 | `df.room.list` / `df.room.create 烽火` |
+| `df.health` | 服务器状态 | 查看 API 服务状态 |
+| `df.resources.download` | 资源管理 | 下载/更新静态资源 |
+
+### 娱乐功能
+
+| 命令 | 功能 | 示例 |
+| --- | --- | --- |
+| `df.voice [参数]` | 随机语音 | `df.voice` / `df.voice 红狼 局内 战斗` |
+| `df.tts <角色> [情感] <文本>` | TTS 语音合成 | `df.tts 麦晓雯 开心 你好呀！` |
+| `df.music [关键词]` | 鼠鼠音乐 | `df.music` / `df.music 曼波` |
+| `df.music.rank [页码]` | 音乐排行榜 | `df.music.rank` / `df.music.rank 2` |
+| `df.music.playlist [名称]` | 鼠鼠歌单 | `df.music.playlist 曼波` |
+| `df.music.play <序号>` | 点歌 | `df.music.play 3` |
+| `df.music.lyrics` | 查看歌词 | 获取当前歌曲歌词 |
+| `df.music.voice` | 语音播放 | 强制语音格式播放 |
+| `df.help` | 帮助菜单 | 图片渲染帮助 |
+
+### 快捷触发示例
+
+```
+^登录 / ^QQ登录 / ^微信登录 / ^wegame登录
+^信息 / ^日报 / ^周报 / ^战绩 / ^数据
+^价格 腾龙 / ^物品搜索 M4A1
+^鼠鼠音乐 / ^鼠鼠音乐列表 / ^点歌 3 / ^歌词
+^鼠鼠语音 / ^语音 红狼 / ^tts 麦晓雯 你好
+^帮助 / ^娱乐帮助
+```
 
 ### 登录平台说明
 

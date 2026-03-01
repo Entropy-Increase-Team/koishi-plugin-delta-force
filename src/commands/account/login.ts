@@ -35,7 +35,12 @@ export function registerLoginCommands(
       // 记录原始平台类型，用于后续判断是否进行角色绑定
       const originalPlatform = platform
 
-      await session.send('正在获取登录二维码，请稍候...')
+      // 记录需要撤回的消息ID（分两组）
+      const qrMessages: string[] = []       // 二维码相关消息（提示+图片）
+      const scannedMessages: string[] = []  // 已扫描提示消息
+
+      const loadingMsgIds = await session.send('正在获取登录二维码，请稍候...')
+      if (loadingMsgIds) qrMessages.push(...loadingMsgIds)
 
       try {
         // 1. 获取二维码
@@ -110,9 +115,27 @@ export function registerLoginCommands(
         }
 
         // 发送提示文本
-        await session.send(loginTips)
+        const tipsMsgIds = await session.send(loginTips)
+        if (tipsMsgIds) qrMessages.push(...tipsMsgIds)
         // 单独发送图片，避免混合消息在某些平台上的兼容性问题
-        await session.send(imageElement)
+        const qrMsgIds = await session.send(imageElement)
+        if (qrMsgIds) qrMessages.push(...qrMsgIds)
+
+        // 撤回消息的辅助函数
+        const deleteQrMessages = async () => {
+          for (const msgId of qrMessages) {
+            try {
+              await session.bot.deleteMessage(session.channelId, msgId)
+            } catch {}
+          }
+        }
+        const deleteScannedMessages = async () => {
+          for (const msgId of scannedMessages) {
+            try {
+              await session.bot.deleteMessage(session.channelId, msgId)
+            } catch {}
+          }
+        }
 
         // 2. 轮询登录状态
         const startTime = Date.now()
@@ -125,7 +148,9 @@ export function registerLoginCommands(
           const statusRes = await api.getLoginStatus(platform, frameworkToken)
 
           if (statusRes.code === 0) {
-            // 登录成功
+            // 登录成功，撤回已扫描提示
+            await deleteScannedMessages()
+
             const finalToken = (statusRes as { token?: string; frameworkToken?: string }).token || 
                              (statusRes as { token?: string; frameworkToken?: string }).frameworkToken || 
                              frameworkToken
@@ -235,13 +260,20 @@ export function registerLoginCommands(
           } else if (statusRes.code === 2) {
             if (!notifiedScanned) {
               notifiedScanned = true
-              await session.send('二维码已扫描，请在手机上确认登录')
+              // 已扫描，撤回二维码和提示消息
+              await deleteQrMessages()
+              const scannedMsgIds = await session.send('二维码已扫描，请在手机上确认登录')
+              if (scannedMsgIds) scannedMessages.push(...scannedMsgIds)
             }
           } else if (statusRes.code === -2) {
+            await deleteQrMessages()
+            await deleteScannedMessages()
             return '二维码已过期，请重新登录'
           }
         }
 
+        await deleteQrMessages()
+        await deleteScannedMessages()
         return '登录超时，请重新尝试'
       } catch (error) {
         logger.error('登录失败:', error)
